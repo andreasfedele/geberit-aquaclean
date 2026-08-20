@@ -725,21 +725,6 @@ class AquaCleanCoordinator(DataUpdateCoordinator):
             self._mera_common_settings_cache = await client.base_client.get_stored_common_settings_async()
         common_settings = self._mera_common_settings_cache
 
-        # Orientation light "on" — ESTIMATED (issue #37), not a direct device readout.
-        # GetSystemParameterList index 9 (StateOrientationLight) is AcSela-only and
-        # confirmed NOT valid for Mera Comfort: requesting it leaves the device in a
-        # state where the next GetFilterStatus call times out until power-cycled (see
-        # SPL_PARAMS_MERA_COMFORT comment in AquaCleanClient.py) — so it is deliberately
-        # excluded from the `state` poll above and must never be added to it. Instead,
-        # infer the light state from the confirmed-working activation mode setting
-        # (0=Off, 1=On, 2=WhenApproached) combined with live presence: On, or
-        # WhenApproached while someone is sitting.
-        _orientation_light_mode = (common_settings or {}).get(3)
-        orientation_light_on_estimated = (
-            None if _orientation_light_mode is None else
-            _orientation_light_mode == 1 or (_orientation_light_mode == 2 and state.data_array[0] != 0)
-        )
-
         return {
             # Device identification
             "sap_number": ident.sap_number,
@@ -800,7 +785,6 @@ class AquaCleanCoordinator(DataUpdateCoordinator):
             "cs_orientation_light_brightness": (common_settings or {}).get(1),
             "cs_orientation_light_activation": (common_settings or {}).get(3),
             "cs_orientation_light_color":      (common_settings or {}).get(2),
-            "orientation_light_on_estimated":  orientation_light_on_estimated,
             "cs_wc_lid_sensor_sensitivity":    (common_settings or {}).get(4),
             "cs_wc_lid_open_automatically":    (common_settings or {}).get(6),
             "cs_wc_lid_close_automatically":   (common_settings or {}).get(7),

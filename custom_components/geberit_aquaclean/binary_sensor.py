@@ -13,7 +13,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     DOMAIN,
     get_feature_sets, FS_ALL, FS_WITH_LADY_SHOWER, FS_WITH_DRYER, FS_ALBA_ONLY,
-    FS_MERA_COMFORT_ONLY,
 )
 from .coordinator import AquaCleanCoordinator
 from .entity import AquaCleanEntity, AquaCleanProxyEntity
@@ -26,16 +25,6 @@ BINARY_SENSORS: list[tuple] = [
     ("firmware_update_available", "Firmware Update Available", BinarySensorDeviceClass.UPDATE,    "mdi:update",                 "mdi:check-circle",            FS_ALL,          True),
     ("is_lady_shower_running",    "Lady Shower Running",       None,                              "geberit:ladywash",           "geberit:ladywash",            FS_WITH_LADY_SHOWER, True),
     ("is_dryer_running",          "Dryer Running",             None,                              "geberit:dryer-on",           "geberit:dryer-off",           FS_WITH_DRYER,   True),
-    # Issue #37 — feature request: expose orientation light status as an entity.
-    # ESTIMATED, not a direct device readout: the protocol's own status flag
-    # (GetSystemParameterList index 9 / StateOrientationLight) is AcSela-only and
-    # confirmed NOT valid on Mera Comfort — requesting it stalls the next filter-status
-    # read until the device is power-cycled (see SPL_PARAMS_MERA_COMFORT in
-    # AquaCleanClient.py), so it is intentionally never polled. This entity infers the
-    # light state instead, from the confirmed-working activation-mode setting plus live
-    # "User Sitting" presence — see coordinator._build_mera_result(). Disabled by
-    # default and marked diagnostic so it doesn't read as a verified device signal.
-    ("orientation_light_on_estimated", "Orientation Light (Estimated)", None, "mdi:lightbulb-on-outline", "mdi:lightbulb-off-outline", FS_MERA_COMFORT_ONLY, False),
 ]
 
 # (data_key, friendly_name, device_class, icon)
