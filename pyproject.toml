@@ -26,7 +26,7 @@ dependencies = [
     # actually ships — Settings → System → Repairs → (⋮) → "Download
     # diagnostics" on the ESPHome integration, or `pip show aioesphomeapi`
     # inside the HA venv/container.
-    "aioesphomeapi>=25.0.0,<26.0.0",
+    "aioesphomeapi>=25.0.0,<46.0.0",
     "aiorun",
     "fastapi",
     "uvicorn",
