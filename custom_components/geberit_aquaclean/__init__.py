@@ -1,0 +1,106 @@
+"""Geberit AquaClean integration."""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import pathlib
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+
+# aquaclean_console_app uses custom log levels TRACE (DEBUG-5) and SILLY (DEBUG-7)
+# that are registered at module level in main.py — which is never imported in HAOS.
+# Add them to logging.Logger directly so HassLogger (a subclass) inherits them.
+def _register_custom_log_levels() -> None:
+    _TRACE = logging.DEBUG - 5
+    _SILLY = logging.DEBUG - 7
+
+    if not hasattr(logging.Logger, "trace"):
+        logging.addLevelName(_TRACE, "TRACE")
+        logging.TRACE = _TRACE  # type: ignore[attr-defined]
+
+        def _trace(self: logging.Logger, msg: object, *args: object, **kwargs: object) -> None:
+            if self.isEnabledFor(_TRACE):
+                self._log(_TRACE, msg, args, **kwargs)
+
+        logging.Logger.trace = _trace  # type: ignore[attr-defined]
+
+    if not hasattr(logging.Logger, "silly"):
+        logging.addLevelName(_SILLY, "SILLY")
+        logging.SILLY = _SILLY  # type: ignore[attr-defined]
+
+        def _silly(self: logging.Logger, msg: object, *args: object, **kwargs: object) -> None:
+            if self.isEnabledFor(_SILLY):
+                self._log(_SILLY, msg, args, **kwargs)
+
+        logging.Logger.silly = _silly  # type: ignore[attr-defined]
+
+_register_custom_log_levels()
+
+from .const import DOMAIN
+from .coordinator import AquaCleanCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+_MANIFEST = pathlib.Path(__file__).parent / "manifest.json"
+_VERSION = json.loads(_MANIFEST.read_text())["version"]
+
+PLATFORMS = ["binary_sensor", "sensor", "button", "number"]
+
+_ICONS_JS = pathlib.Path(__file__).parent / "www" / "geberit-aquaclean-icons.js"
+_ICONS_URL = "/geberit_aquaclean/geberit-aquaclean-icons.js"
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Register the custom icon set as a Lovelace frontend resource."""
+    from homeassistant.components.http import StaticPathConfig
+    from homeassistant.components.frontend import add_extra_js_url
+
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(_ICONS_URL, str(_ICONS_JS), cache_headers=True)]
+    )
+    add_extra_js_url(hass, _ICONS_URL)
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    _LOGGER.info("geberit_aquaclean %s", _VERSION)
+
+    # HA retries ConfigEntryNotReady by calling async_setup_entry again WITHOUT first
+    # calling async_unload_entry.  Any coordinator left over from a prior failed attempt
+    # must be closed before the new one connects — otherwise both hold the ESPHome BLE
+    # advertisement subscription simultaneously → "Only one API subscription" on ESP32.
+    old_coordinator = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if old_coordinator is not None:
+        _LOGGER.debug("Closing stale coordinator from a prior failed setup attempt")
+        await old_coordinator.async_close()
+
+    coordinator = AquaCleanCoordinator(hass, entry)
+    # Store before first_refresh so the NEXT retry (above) can find and close this
+    # coordinator if first_refresh raises ConfigEntryNotReady.
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+
+    # Give the ESP32 time to process the subscription release from the config-flow
+    # connection test (or the stale coordinator closed above) before the first poll.
+    await asyncio.sleep(3.0)
+    # Register entities immediately so HA shows the "Name and assign" dialog without
+    # waiting for the first BLE poll to succeed.  The non-blocking refresh below
+    # populates the entities in the background; they show "Unknown" until it completes.
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await coordinator.async_request_refresh()
+    # Reload the entry when the user saves new options — picks up changed settings.
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    coordinator = hass.data[DOMAIN].get(entry.entry_id)
+    if coordinator is not None:
+        await coordinator.async_close()
+    if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        hass.data[DOMAIN].pop(entry.entry_id)
+    return unloaded

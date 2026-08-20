@@ -1,0 +1,424 @@
+import asyncio
+import importlib.metadata
+import json
+import logging
+import os
+import signal
+import sys
+
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+
+
+class BleConnectionUpdate(BaseModel):
+    value: str
+
+
+class EsphomeApiConnectionUpdate(BaseModel):
+    value: str
+
+
+class PollIntervalUpdate(BaseModel):
+    value: float
+
+
+class ProfileSettingUpdate(BaseModel):
+    setting_id: int
+    value: int
+
+
+class CommonSettingUpdate(BaseModel):
+    setting_id: int
+    value: int
+
+
+class AlbaCommandBody(BaseModel):
+    value: int = 0
+
+
+logger = logging.getLogger(__name__)
+
+
+class RestApiService:
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = int(port)
+        self.app = FastAPI(title="Geberit AquaClean REST API")
+        self._api_mode = None
+        self._sse_queues: list[asyncio.Queue] = []
+        self._register_routes()
+
+    def set_api_mode(self, api_mode):
+        self._api_mode = api_mode
+
+    async def broadcast_state(self, state: dict):
+        data = {"type": "state", **state}
+        for q in list(self._sse_queues):
+            await q.put(data)
+
+    def _close_sse_connections(self):
+        for q in list(self._sse_queues):
+            q.put_nowait(None)  # sentinel: tells each generator to return
+
+    def _register_routes(self):
+        app = self.app
+
+        @app.get("/")
+        async def serve_ui():
+            return FileResponse(
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html"),
+                headers={"Cache-Control": "no-store"},
+            )
+
+        @app.get("/events")
+        async def sse():
+            queue: asyncio.Queue = asyncio.Queue()
+            self._sse_queues.append(queue)
+            try:
+                initial = self._api_mode.get_current_state()
+                await queue.put({"type": "state", **initial})
+            except Exception:
+                pass
+
+            async def generate():
+                try:
+                    while True:
+                        try:
+                            data = await asyncio.wait_for(queue.get(), timeout=30.0)
+                            if data is None:  # shutdown sentinel
+                                return
+                            yield f"data: {json.dumps(data)}\n\n"
+                        except asyncio.TimeoutError:
+                            yield ": heartbeat\n\n"
+                except (asyncio.CancelledError, GeneratorExit):
+                    pass
+                finally:
+                    if queue in self._sse_queues:
+                        self._sse_queues.remove(queue)
+
+            return StreamingResponse(
+                generate(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
+        @app.get("/version")
+        async def get_version():
+            base = "unknown"
+            try:
+                base = importlib.metadata.version("geberit-aquaclean")
+                dist = importlib.metadata.distribution("geberit-aquaclean")
+                text = dist.read_text("direct_url.json")
+                if text:
+                    vcs = json.loads(text).get("vcs_info", {})
+                    requested = vcs.get("requested_revision", "")
+                    commit_id = vcs.get("commit_id", "")
+                    is_tag = "." in requested
+                    if commit_id and not is_tag:
+                        base = f"{base}+{commit_id[:7]}"
+            except Exception:
+                pass
+            version = base
+            _py = sys.version_info
+            return {
+                "version": version,
+                "python": f"{_py.major}.{_py.minor}.{_py.micro}",
+            }
+
+        @app.get("/info/system")
+        async def get_system_info():
+            return self._api_mode.get_system_info_data()
+
+        @app.get("/info/performance")
+        async def get_performance_stats(format: str = "json"):
+            from fastapi.responses import PlainTextResponse
+            data = self._api_mode.get_performance_stats(format)
+            if format == "markdown":
+                return PlainTextResponse(data)
+            return data
+
+        @app.get("/status")
+        async def get_status():
+            return await self._api_mode.get_status()
+
+        @app.get("/info")
+        async def get_info():
+            return await self._api_mode.get_info()
+
+        @app.post("/command/toggle-lid")
+        async def toggle_lid():
+            result = await self._api_mode.run_command("toggle-lid") or {}
+            return {"status": "success", "command": "toggle-lid", **result}
+
+        @app.post("/command/toggle-anal")
+        async def toggle_anal():
+            result = await self._api_mode.run_command("toggle-anal") or {}
+            return {"status": "success", "command": "toggle-anal", **result}
+
+        @app.post("/command/toggle-lady")
+        async def toggle_lady():
+            result = await self._api_mode.run_command("toggle-lady") or {}
+            return {"status": "success", "command": "toggle-lady", **result}
+
+        @app.post("/command/toggle-dryer")
+        async def toggle_dryer():
+            result = await self._api_mode.run_command("toggle-dryer") or {}
+            return {"status": "success", "command": "toggle-dryer", **result}
+
+        @app.post("/command/reset-filter-counter")
+        async def reset_filter_counter():
+            result = await self._api_mode.run_command("reset-filter-counter") or {}
+            return {"status": "success", "command": "reset-filter-counter", **result}
+
+        @app.post("/command/toggle-orientation-light")
+        async def toggle_orientation_light():
+            result = await self._api_mode.run_command("toggle-orientation-light") or {}
+            return {"status": "success", "command": "toggle-orientation-light", **result}
+
+        @app.post("/command/trigger-flush-manually")
+        async def trigger_flush_manually():
+            result = await self._api_mode.run_command("trigger-flush-manually") or {}
+            return {"status": "success", "command": "trigger-flush-manually", **result}
+
+        @app.post("/command/prepare-descaling")
+        async def prepare_descaling():
+            result = await self._api_mode.run_command("prepare-descaling") or {}
+            return {"status": "success", "command": "prepare-descaling", **result}
+
+        @app.post("/command/confirm-descaling")
+        async def confirm_descaling():
+            result = await self._api_mode.run_command("confirm-descaling") or {}
+            return {"status": "success", "command": "confirm-descaling", **result}
+
+        @app.post("/command/cancel-descaling")
+        async def cancel_descaling():
+            result = await self._api_mode.run_command("cancel-descaling") or {}
+            return {"status": "success", "command": "cancel-descaling", **result}
+
+        @app.post("/command/postpone-descaling")
+        async def postpone_descaling():
+            result = await self._api_mode.run_command("postpone-descaling") or {}
+            return {"status": "success", "command": "postpone-descaling", **result}
+
+        @app.post("/command/start-cleaning-device")
+        async def start_cleaning_device():
+            result = await self._api_mode.run_command("start-cleaning-device") or {}
+            return {"status": "success", "command": "start-cleaning-device", **result}
+
+        @app.post("/command/execute-next-cleaning-step")
+        async def execute_next_cleaning_step():
+            result = await self._api_mode.run_command("execute-next-cleaning-step") or {}
+            return {"status": "success", "command": "execute-next-cleaning-step", **result}
+
+        @app.post("/command/start-lid-calibration")
+        async def start_lid_calibration():
+            result = await self._api_mode.run_command("start-lid-calibration") or {}
+            return {"status": "success", "command": "start-lid-calibration", **result}
+
+        @app.post("/command/lid-offset-save")
+        async def lid_offset_save():
+            result = await self._api_mode.run_command("lid-offset-save") or {}
+            return {"status": "success", "command": "lid-offset-save", **result}
+
+        @app.post("/command/lid-offset-increment")
+        async def lid_offset_increment():
+            result = await self._api_mode.run_command("lid-offset-increment") or {}
+            return {"status": "success", "command": "lid-offset-increment", **result}
+
+        @app.post("/command/lid-offset-decrement")
+        async def lid_offset_decrement():
+            result = await self._api_mode.run_command("lid-offset-decrement") or {}
+            return {"status": "success", "command": "lid-offset-decrement", **result}
+
+        @app.get("/data/system-parameters")
+        async def get_system_parameters():
+            return await self._api_mode.get_system_parameters()
+
+        @app.get("/data/node-list")
+        async def get_node_list():
+            return await self._api_mode.get_node_list()
+
+        @app.get("/data/soc-versions")
+        async def get_soc_versions():
+            return await self._api_mode.get_soc_versions()
+
+        @app.get("/data/firmware-version-list")
+        async def get_firmware_version_list(payload: str = ""):
+            """Probe GetFirmwareVersionList (0x0E).
+            ?payload=  hex string to send as request payload, e.g. ?payload=0000
+            Leave empty for no-argument call (returns empty on the Mera Comfort)."""
+            try:
+                payload_bytes = bytes.fromhex(payload) if payload else b''
+            except ValueError:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail="payload must be a hex string, e.g. 0000")
+            result = await self._api_mode.get_firmware_version_list(payload_bytes)
+            result["payload_sent"] = payload or "(empty)"
+            return result
+
+        @app.get("/info/firmware-update")
+        async def get_firmware_update_status():
+            return await self._api_mode.get_firmware_update_status()
+
+        @app.get("/data/filter-status")
+        async def get_filter_status():
+            return await self._api_mode.get_filter_status()
+
+        @app.get("/data/profile-settings")
+        async def get_profile_settings():
+            return await self._api_mode.get_profile_settings()
+
+        @app.get("/data/statistics-descale")
+        async def get_statistics_descale():
+            return await self._api_mode.get_statistics_descale()
+
+        @app.get("/data/initial-operation-date")
+        async def get_initial_operation_date():
+            return await self._api_mode.get_initial_operation_date()
+
+        @app.get("/data/identification")
+        async def get_identification():
+            return await self._api_mode.get_identification()
+
+        @app.get("/data/anal-shower-state")
+        async def get_anal_shower_state():
+            return await self._api_mode.get_anal_shower_state()
+
+        @app.get("/data/user-sitting-state")
+        async def get_user_sitting_state():
+            return await self._api_mode.get_user_sitting_state()
+
+        @app.get("/data/lady-shower-state")
+        async def get_lady_shower_state():
+            return await self._api_mode.get_lady_shower_state()
+
+        @app.get("/data/dryer-state")
+        async def get_dryer_state():
+            return await self._api_mode.get_dryer_state()
+
+        @app.get("/config")
+        async def get_config():
+            return self._api_mode.get_config()
+
+        @app.post("/config/ble-connection")
+        async def set_ble_connection(body: BleConnectionUpdate):
+            return await self._api_mode.set_ble_connection(body.value)
+
+        @app.post("/config/esphome-api-connection")
+        async def set_esphome_api_connection(body: EsphomeApiConnectionUpdate):
+            return await self._api_mode.set_esphome_api_connection(body.value)
+
+        @app.post("/config/poll-interval")
+        async def set_poll_interval(body: PollIntervalUpdate):
+            return await self._api_mode.set_poll_interval(body.value)
+
+        @app.post("/config/profile-setting")
+        async def set_profile_setting(body: ProfileSettingUpdate):
+            return await self._api_mode.set_profile_setting(body.setting_id, body.value)
+
+        @app.post("/config/common-setting")
+        async def set_common_setting(body: CommonSettingUpdate):
+            return await self._api_mode.set_common_setting(body.setting_id, body.value)
+
+        @app.get("/data/common-settings")
+        async def get_common_settings():
+            return await self._api_mode.get_common_settings()
+
+        # ── Alba-only endpoints ───────────────────────────────────────────────
+        @app.get("/alba/misc-state")
+        async def get_alba_misc_state():
+            return await self._api_mode.get_alba_misc_state()
+
+        @app.get("/alba/instanced-state")
+        async def get_alba_instanced_state():
+            return await self._api_mode.get_alba_instanced_state()
+
+        @app.post("/alba/command/{command}")
+        async def run_alba_command(command: str, body: AlbaCommandBody = AlbaCommandBody()):
+            return await self._api_mode.run_alba_command(command, body.value)
+
+        @app.post("/connect")
+        async def connect():
+            return await self._api_mode.do_connect()
+
+        @app.post("/disconnect")
+        async def disconnect():
+            return await self._api_mode.do_disconnect()
+
+        @app.post("/esphome/connect")
+        async def esp32_connect():
+            return await self._api_mode.esp32_connect()
+
+        @app.post("/esphome/disconnect")
+        async def esp32_disconnect():
+            return await self._api_mode.esp32_disconnect()
+
+        @app.post("/esphome/restart")
+        async def esp32_restart():
+            return await self._api_mode.esp32_restart()
+
+    async def start(self, shutdown_event: asyncio.Event):
+        server_config = uvicorn.Config(
+            self.app,
+            host=self.host,
+            port=self.port,
+            log_level="info",
+            loop="none",
+            lifespan="off",
+        )
+        server = uvicorn.Server(server_config)
+
+        # Prevent uvicorn from installing its own signal handlers —
+        # the caller (ApiMode) owns signal handling via the shared shutdown_event.
+        server.install_signal_handlers = lambda: None
+
+        serve_task = asyncio.create_task(server.serve())
+
+        # Wait for uvicorn to finish startup.
+        while not server.started:
+            if serve_task.done():
+                break
+            await asyncio.sleep(0.05)
+
+        # NOW override whatever signal handler uvicorn may have installed
+        # (even if our lambda trick didn't work on this version).
+        # A single Ctrl+C sets the shared shutdown event which all
+        # subsystems (BLE, MQTT, uvicorn) observe independently.
+        loop = asyncio.get_running_loop()
+
+        def _on_signal():
+            logger.info("Shutdown signal received — stopping all subsystems...")
+            shutdown_event.set()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, _on_signal)
+
+        # Watch the shared shutdown event in a background task.
+        # When it fires, tell uvicorn to stop immediately and cancel
+        # serve_task in case serve() doesn't return on its own.
+        async def _shutdown_watcher():
+            await shutdown_event.wait()
+            self._close_sse_connections()
+            server.should_exit = True
+            server.force_exit = True
+            serve_task.cancel()
+
+        watcher_task = asyncio.create_task(_shutdown_watcher())
+
+        try:
+            await serve_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            watcher_task.cancel()
+            try:
+                await watcher_task
+            except asyncio.CancelledError:
+                pass
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                try:
+                    loop.remove_signal_handler(sig)
+                except Exception:
+                    pass

@@ -1,0 +1,72 @@
+# Geberit AquaClean — Home Assistant configuration.yaml additions (HACS integration)
+#
+# Paste these blocks into your existing configuration.yaml.
+# Requires: Home Assistant 2024.1+, Geberit AquaClean HACS integration installed.
+#
+# After saving, reload via:
+#   Developer Tools → YAML → Template Entities → Reload
+#   (or restart Home Assistant)
+
+# ---------------------------------------------------------------------------
+# Debug logging (optional)
+# ---------------------------------------------------------------------------
+# Uncomment to enable debug logging for the integration.
+# Apply without restart: Settings → Developer Tools → Actions → logger.set_level
+#
+# logger:
+#   default: warning
+#   logs:
+#     custom_components.geberit_aquaclean: debug   # integration glue (coordinator, config flow)
+#     aquaclean_console_app: debug                 # BLE protocol library
+#
+# NOTE: the custom levels "trace" and "silly" cannot be set here.
+# HA validates log level names before loading custom integrations, so "trace"/"silly"
+# are not yet registered at config-load time → HA rejects them with an error.
+# Use the automation below instead, or set them dynamically via logger.set_level.
+#
+# ---------------------------------------------------------------------------
+# Trace/silly logging from HA startup (optional)
+# ---------------------------------------------------------------------------
+# Add to your automations.yaml (or create via Settings → Automations):
+#
+# alias: AquaClean — enable trace logging at startup
+# trigger:
+#   - platform: homeassistant
+#     event: started
+# action:
+#   - action: logger.set_level
+#     data:
+#       custom_components.geberit_aquaclean: trace
+#       aquaclean_console_app: trace   # or: silly
+
+# ---------------------------------------------------------------------------
+# Template sensors
+# ---------------------------------------------------------------------------
+template:
+
+  # Signal quality labels — update automatically when the underlying sensor changes.
+  # Thresholds follow standard RF guidelines (separate scales for BLE and WiFi):
+  #   BLE:  Excellent > -55 dBm | Good -55…-70 | Fair -70…-80 | Weak < -80
+  #   WiFi: Excellent > -50 dBm | Good -50…-65 | Fair -65…-75 | Weak < -75
+  - sensor:
+      - name: "BLE Signal Quality"
+        icon: mdi:bluetooth
+        state: >
+          {% set v = states('sensor.geberit_aquaclean_ble_signal') | int(-999) %}
+          {% if v == -999 %}Unavailable
+          {% elif v > -55 %}Excellent ({{ v }} dBm)
+          {% elif v > -70 %}Good ({{ v }} dBm)
+          {% elif v > -80 %}Fair ({{ v }} dBm)
+          {% else %}Weak ({{ v }} dBm)
+          {% endif %}
+
+      - name: "WiFi Signal Quality"
+        icon: mdi:wifi
+        state: >
+          {% set v = states('sensor.aquaclean_proxy_wifi_signal') | float(-999) | int %}
+          {% if v == -999 %}Unavailable
+          {% elif v > -50 %}Excellent ({{ v }} dBm)
+          {% elif v > -65 %}Good ({{ v }} dBm)
+          {% elif v > -75 %}Fair ({{ v }} dBm)
+          {% else %}Weak ({{ v }} dBm)
+          {% endif %}

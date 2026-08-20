@@ -1,0 +1,2141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Geberit AquaClean</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --accent: #007AC9;
+      --accent-glow: rgba(0, 122, 201, 0.35);
+      --text: #e0e0e0;
+      --muted: #888;
+      --success: #4caf50;
+      --error: #f44336;
+      --radius: 12px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--surface);
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    header h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .sse-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .sse-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--error);
+      transition: background 0.3s;
+      flex-shrink: 0;
+    }
+
+    .sse-dot.live { background: var(--success); }
+
+    main {
+      flex: 1;
+      padding: 1.5rem;
+      max-width: 900px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    h2 {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 0.75rem;
+      margin-top: 1.5rem;
+    }
+
+    h2:first-child { margin-top: 0; }
+
+    /* Status cards */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1rem;
+    }
+
+    @media (max-width: 480px) {
+      .cards { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+      border: 1px solid rgba(255,255,255,0.06);
+      transition: border-color 0.3s, box-shadow 0.3s, color 0.3s;
+      color: var(--muted);
+    }
+
+    .card.active {
+      color: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .card svg {
+      width: 52px;
+      height: 52px;
+    }
+
+    .card-label {
+      font-size: 0.875rem;
+      font-weight: 500;
+    }
+
+    .card-value {
+      font-size: 0.75rem;
+      opacity: 0.6;
+    }
+
+    /* Device info */
+    .info-grid {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.5rem 1rem;
+      border: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.875rem;
+    }
+
+    .info-grid dt { color: var(--muted); white-space: nowrap; }
+    .info-grid dd { font-weight: 500; word-break: break-all; }
+    /* div wrappers inside a grid dl must be transparent so dt/dd stay in grid columns */
+    .info-grid .mera-only { display: contents; }
+    /* ── User Profile sections ──────────────────────────────────────────── */
+    .ps-sections { display:flex; flex-direction:column; gap:0.5rem; }
+
+    .ps-section {
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+    .ps-section-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      color: var(--muted);
+      padding: 0.55rem 1.1rem 0.45rem;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .ps-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 1.1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 0.875rem;
+      gap: 1rem;
+      min-height: 2.6rem;
+    }
+    .ps-row:last-child { border-bottom: none; }
+    .ps-row-label { color: var(--text); flex-shrink: 0; }
+
+    /* iOS-style toggle switch */
+    .ios-toggle { position:relative; display:inline-block; width:46px; height:28px; flex-shrink:0; }
+    .ios-toggle input { opacity:0; width:0; height:0; position:absolute; }
+    .ios-toggle-track {
+      position: absolute; inset: 0;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.15);
+      transition: background 0.22s;
+      cursor: pointer;
+    }
+    .ios-toggle-track::before {
+      content: '';
+      position: absolute;
+      left: 3px; top: 3px;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.22s cubic-bezier(.4,0,.2,1);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    }
+    .ios-toggle input:checked + .ios-toggle-track { background: #34c759; }
+    .ios-toggle input:checked + .ios-toggle-track::before { transform: translateX(18px); }
+
+    /* Stepper: − value + */
+    .ps-stepper {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.04);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .ps-step-btn {
+      background: none;
+      border: none;
+      color: var(--text);
+      font-size: 1.15rem;
+      line-height: 1;
+      width: 2.2rem;
+      height: 2.1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: unset;
+      padding: 0;
+      border-radius: 0;
+      border-right: 1px solid rgba(255,255,255,0.1);
+      transition: background 0.15s;
+    }
+    .ps-step-btn:last-child { border-right: none; border-left: 1px solid rgba(255,255,255,0.1); }
+    .ps-step-btn:hover { background: rgba(255,255,255,0.1); }
+    .ps-step-val {
+      min-width: 2.4rem;
+      text-align: center;
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: var(--text);
+      user-select: none;
+    }
+
+    /* Activation select — wide enough for "When Approached" */
+    .ps-sel {
+      padding: 0.3rem 0.5rem;
+      border-radius: 7px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
+      color: inherit;
+      font-size: 0.85rem;
+      font-weight: 500;
+      min-width: 9rem;
+      cursor: pointer;
+    }
+
+    /* Color swatches */
+    .cs-swatch { display:inline-block;width:1.55rem;height:1.55rem;border-radius:50%;margin:0 0.22rem;cursor:pointer;border:2px solid transparent;vertical-align:middle;transition:transform 0.15s,border-color 0.15s; }
+    .cs-swatch:first-child { margin-left:0; }
+    .cs-swatch:hover { transform:scale(1.2); }
+    .cs-swatch.active { border-color:#fff;transform:scale(1.15); }
+
+    /* Not-yet-mapped placeholder */
+    .ps-not-avail { font-size:0.78rem; color:var(--muted); font-style:italic; }
+
+    /* Connection status badge */
+    .conn-panel {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 1rem 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      border: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.875rem;
+    }
+
+    .conn-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .conn-badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 99px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: rgba(136,136,136,0.15);
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .conn-badge.connected    { background: rgba(76,175,80,0.2);   color: var(--success); }
+    .conn-badge.connecting   { background: rgba(255,193,7,0.2);   color: #ffc107; }
+    .conn-badge.error        { background: rgba(244,67,54,0.2);   color: var(--error); }
+
+    .conn-detail { color: var(--text); word-break: break-word; }
+    .conn-meta   { color: var(--muted); font-size: 0.8rem; }
+
+    /* Controls */
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    button {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 0.6rem 1.2rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+      min-width: 130px;
+      justify-content: center;
+    }
+
+    button:hover { background: rgba(255,255,255,0.06); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.success { border-color: var(--success); color: var(--success); }
+    button.error   { border-color: var(--error);   color: var(--error);   }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: none;
+      flex-shrink: 0;
+    }
+
+    button.loading .spinner { display: block; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Poll countdown */
+    .poll-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.6rem;
+    }
+
+    .poll-bar-wrap {
+      flex: 1;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .poll-bar {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 99px;
+      transition: width 0.1s linear;
+      width: 100%;
+    }
+
+    /* Server-offline banner */
+    .offline-banner {
+      display: none;
+      background: #7f1d1d;
+      color: #fca5a5;
+      text-align: center;
+      padding: 0.65rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      border-bottom: 1px solid #b91c1c;
+      letter-spacing: 0.01em;
+    }
+
+    .offline-banner.visible { display: block; }
+
+    footer {
+      padding: 1rem 1.5rem;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--muted);
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    /* Hide Mera-Comfort-only elements when an Alba is connected */
+    body.device-alba .mera-only { display: none !important; }
+    /* Hide Alba-only elements when NOT an Alba */
+    .alba-only { display: none !important; }
+    body.device-alba .alba-only { display: revert !important; }
+    /* Collapsible section toggle button */
+    .section-toggle-btn {
+      background: none; border: none; color: var(--muted);
+      font: inherit; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.1em; cursor: pointer; padding: 0;
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+    /* Misc-state display grid */
+    .misc-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 0.3rem 1rem;
+      font-size: 0.82rem;
+      margin-top: 0.6rem;
+    }
+    .misc-lbl { color: var(--muted); }
+    .misc-grid span:not(.misc-lbl):not(.misc-group-header) { font-weight: 500; }
+    .misc-group-header {
+      grid-column: 1 / -1;
+      color: var(--accent);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 0.5rem;
+      padding-top: 0.4rem;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .misc-group-header:first-child { margin-top: 0; border-top: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Geberit AquaClean</h1>
+    <div class="sse-indicator">
+      <div class="sse-dot" id="sseDot"></div>
+      <span id="sseLabel">disconnected</span>
+    </div>
+  </header>
+
+  <div class="offline-banner" id="offlineBanner">
+    Server offline — start the service to reconnect
+  </div>
+
+  <main>
+    <h2>Status</h2>
+    <div class="cards">
+
+      <div class="card" id="card-sitting">
+        <!-- is_user_sitting-on.svg: toilet + person -->
+        <svg id="svg-sitting-on" viewBox="0 0 133.33333 133.33333" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(-35.999999,-13.097331)">
+            <path fill="currentColor" d="M 63.999999,49.333659 V 86.66569 h 25.333984 v 33.33398 L 98.14452,120.2023 98.347154,82.861003 90.30664,77.333659 H 73.333983 v -28 z m -28,13.332031 v 8.628907 c 4.223714,-0.07296 8.443362,-0.162331 12.666016,0.03906 l 0.178817,31.332033 h 24.489151 v 1.03711 l -0.202634,2.05028 -1.010266,2.4834 -2.833975,2.68409 -12.30028,0.008 0.177234,8.46338 c 0,0 7.937235,0.60852 11.704587,-0.41527 1.483955,-0.40327 3.536193,-0.61588 4.869621,-1.38186 1.442108,-0.82841 2.862307,-2.04869 4.057132,-3.20555 0.943257,-0.91328 1.641285,-1.79145 2.360837,-2.88966 0.719251,-1.09775 1.955569,-3.29296 1.955569,-3.29296 L 83.039062,93.333417 H 57.333983 V 62.66569 Z"/>
+            <circle fill="currentColor" cx="68.858162" cy="27.921038" r="13"/>
+          </g>
+        </svg>
+        <!-- is_user_sitting-off.svg: toilet only -->
+        <svg id="svg-sitting-off" viewBox="0 0 133.33333 133.33333" xmlns="http://www.w3.org/2000/svg" style="display:none">
+          <g transform="translate(-35.999999,-13.097331)">
+            <path fill="currentColor" d="m 35.999999,62.66569 v 8.628907 c 4.223714,-0.07296 8.443362,-0.162331 12.666016,0.03906 l 0.178817,31.332033 h 24.489151 v 1.03711 l -0.202634,2.05028 -1.010266,2.4834 -2.833975,2.68409 -12.30028,0.008 0.177234,8.46338 c 0,0 7.937235,0.60852 11.704587,-0.41527 1.483955,-0.40327 3.536193,-0.61588 4.869621,-1.38186 1.442108,-0.82841 2.862307,-2.04869 4.057132,-3.20555 0.943257,-0.91328 1.641285,-1.79145 2.360837,-2.88966 0.719251,-1.09775 1.955569,-3.29296 1.955569,-3.29296 L 83.039062,93.333417 H 57.333983 V 62.66569 Z"/>
+          </g>
+        </svg>
+        <span class="card-label">User Sitting</span>
+        <span class="card-value" id="val-sitting">—</span>
+      </div>
+
+      <div class="card" id="card-anal">
+        <!-- Anal shower icon (water spray) -->
+        <svg viewBox="0 0 448 428" xmlns="http://www.w3.org/2000/svg">
+          <path fill="currentColor" d="m 203.79966,346.75 c -1.2022,-0.94954 -1.86226,-4.73531 -2.74608,-15.75 -2.35244,-29.31749 -8.0269,-57.79937 -15.0419,-75.5 -5.14961,-12.99377 -14.64006,-30.5059 -21.43725,-39.55685 -7.92285,-10.54982 -21.34352,-23.55048 -34.01426,-32.94974 -5.34752,-3.96684 -10.5963,-8.62566 -11.66396,-10.35292 C 114.16783,164.99087 119.21672,158 129.46974,158 c 9.71459,0 13.01754,1.92407 27.10548,15.78984 15.59354,15.34761 23.38411,26.07561 32.46808,44.71016 15.19349,31.16739 22.81312,65.09452 25.65008,114.2095 0.49238,8.5244 0.31497,10.62882 -1.07489,12.75 -1.85813,2.83587 -7.0057,3.51242 -9.81883,1.2905 z m 26.1686,-0.28825 c -1.65332,-1.99212 -0.7393,-30.78254 1.52265,-47.96175 4.60401,-34.9668 15.31839,-68.84 29.25853,-92.5 13.67864,-23.21617 31.51096,-40.40311 49.14183,-47.3633 5.22482,-2.06262 8.94673,-1.48534 13.13268,2.03691 7.30964,6.15066 0.95565,15.41269 -21.75846,31.7167 -2.87899,2.06651 -8.41851,7.21158 -12.31005,11.43349 -27.24729,29.56042 -43.97751,75.25114 -46.56711,127.1762 -0.74214,14.8809 -1.65073,17 -7.28894,17 -2.24886,0 -4.3863,-0.64077 -5.13113,-1.53825 z M 196.83705,188.94241 c -0.91462,-0.5194 -2.89004,-4.20642 -4.38983,-8.19338 -4.93955,-13.13107 -16.47411,-34.60916 -26.79296,-49.89024 -12.92478,-19.14018 -12.62209,-18.57323 -12.63952,-23.67453 -0.0192,-5.61132 1.23338,-7.786118 5.22758,-9.076642 4.05161,-1.309073 9.21727,-0.207076 14.97914,3.195522 7.12811,4.20941 10.69749,8.75555 14.0062,17.839 12.28698,33.73158 14.15964,41.3477 14.16806,57.62163 0.006,11.02386 -1.15092,14.11384 -4.55867,12.17864 z m 44.51221,-2.47463 c -1.21424,-3.16427 0.5892,-22.0002 3.07429,-32.10929 1.37118,-5.57783 4.35113,-15.19102 6.62211,-21.36265 2.27097,-6.17162 4.77218,-13.3868 5.55823,-16.03373 2.7412,-9.23062 15.55911,-18.971972 24.89611,-18.920538 6.48668,0.03573 9.5,3.623498 9.5,11.311028 0,3.8859 -0.61209,5.19535 -4.58822,9.81575 -8.56077,9.94786 -19.26894,27.27329 -27.39969,44.33165 -4.45661,9.35 -8.86999,18.575 -9.80751,20.5 -1.94223,3.98796 -6.69858,5.48218 -7.85532,2.46778 z m -22.21343,-44.80411 c -3.46918,-4.18012 -5.4889,-14.60323 -7.68575,-39.66367 -1.01432,-11.570737 -2.33871,-20.641874 -3.53591,-24.218455 -3.56475,-10.649449 -1.61447,-17.770994 5.85159,-21.367413 4.70772,-2.267722 13.25204,-2.287712 16.68396,-0.03904 6.42698,4.211123 6.91148,7.809436 3.7869,28.124903 -1.18429,7.7 -3.07776,23.000005 -4.20773,34.000005 -1.94402,18.92463 -2.19121,20.12097 -4.59745,22.25 -2.90444,2.56982 -4.70433,2.83104 -6.29561,0.91366 z"/>
+        </svg>
+        <span class="card-label">Anal Shower</span>
+        <span class="card-value" id="val-anal">—</span>
+      </div>
+
+      <div class="card mera-only" id="card-lady">
+        <!-- Lady wash icon -->
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path fill="currentColor" fill-rule="evenodd" d="M14.5884683 3.00672057C14.5884683 1.88957261 13.6510881 1 12.5013758 1C11.3493705 1 10.4147419 1.88957261 10.4147419 3.00672057C10.4147419 4.11196052 11.3493705 5.00814869 12.5013758 5.00814869C13.6510881 5.00814869 14.5884683 4.11196052 14.5884683 3.00672057M16.9250396 15.6248031L14.2426832 15.9908642L13.600642 21.6308516L13.5676228 21.6859813C13.5460685 21.870335 13.3828066 22 13.1869841 22L11.8226465 22C11.6309514 22 11.4704411 21.870335 11.4456766 21.6859813L10.8063871 15.9908642L8.12494789 15.6248031L10.8063871 9.49041269L10.8063871 9.46836081C10.8091387 9.44983724 10.8146419 9.41543631 10.8146419 9.37265568C10.8146419 9.28621233 10.7563996 9.19447653 10.6568832 9.14243411L10.4147419 8.99733277L10.4252898 9.0493752C10.4078629 9.0493752 10.3849329 9.04320067 10.3601684 9.04320067C10.2556074 9.04320067 10.1643459 9.11112045 10.1235304 9.19447653L8.50191779 12.8056915L8.47577754 12.8171585C8.42303844 12.9494697 8.28958559 13.0266513 8.15383974 13.0266513C8.09376303 13.0266513 8.06624698 13.0200357 7.99974985 12.9993069L7.23434503 12.6733802C7.10501959 12.6222199 7 12.4969652 7 12.3593615C7 12.3214323 7.00550321 12.2623333 7.03439506 12.2296965L9.90707079 6.05473065L9.83782206 6.10059855C10.007963 5.741153 10.3711749 5.50563898 10.7807054 5.50563898L14.2426832 5.56429697L14.2330526 5.51842907C14.6343284 5.51842907 15.0062536 5.741153 15.1681397 6.10059855L17.9426749 12.1895621L17.9701909 12.2296965C17.9889936 12.2623333 18 12.3068781 18 12.3593615C18 12.4912318 17.9206621 12.6222199 17.7959226 12.6733802L17.0502376 13.0487031L17.0016259 12.9993069C16.9635621 13.0200357 16.8938547 13.0266513 16.8626699 13.0266513C16.7195864 13.0266513 16.5907196 12.9494697 16.5375219 12.8171585L14.878304 9.24034443L14.878304 9.19447653C14.8480364 9.11112045 14.7379722 9.04320067 14.6444176 9.04320067C14.6315768 9.04320067 14.5994747 9.0493752 14.5747102 9.0493752L14.3733845 9.12302846L14.3403652 9.14243411C14.2426832 9.19447653 14.1789377 9.28621233 14.1789377 9.37265568C14.1789377 9.41543631 14.1991162 9.44983724 14.2087468 9.46836081L16.9250396 15.6248031"/>
+        </svg>
+        <span class="card-label">Lady Shower</span>
+        <span class="card-value" id="val-lady">—</span>
+      </div>
+
+      <div class="card mera-only" id="card-dryer">
+        <!-- Air dryer icon -->
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path fill="currentColor" fill-rule="evenodd" d="M21 2L21 6.0219159L13.7684665 6.0219159L13.8069428 7.0772757C13.8069428 9.88349134 11.6008054 12.1468179 8.89147879 12.1468179C8.72558126 12.1468179 8.57467447 12.1334133 8.40827724 12.1241331L8.40827724 12.1241331L8.34031921 12.1839386L7.10658123 18.5016616L6.26510097 18.2108834L6.238 18.201L5.41356569 22L4.6032257 21.5928465L5.278 17.882L4.60512625 17.6375761L5.42062256 10.6558064C4.50418859 9.7216042 4 8.41568022 4 7.0772757C4 4.29426045 6.20313924 2.02938716 8.89147879 2.02938716L8.89147879 2.02938716L8.91246583 2L21 2ZM8.89147879 4.23136162C7.37991241 4.23136162 6.13468152 5.51769416 6.13468152 7.0772757C6.13468152 8.64974634 7.37991241 9.93092324 8.89147879 9.93092324C10.4275301 9.93092324 11.666265 8.64974634 11.666265 7.0772757C11.666265 5.51769416 10.4275301 4.23136162 8.89147879 4.23136162Z"/>
+        </svg>
+        <span class="card-label">Dryer</span>
+        <span class="card-value" id="val-dryer">—</span>
+      </div>
+
+    </div>
+    <div class="poll-row">
+      <span id="pollLabel">—</span>
+      <div class="poll-bar-wrap"><div class="poll-bar" id="pollBar"></div></div>
+    </div>
+
+    <h2>Device Info</h2>
+    <dl class="info-grid">
+      <dt>Description</dt>     <dd id="info-description">—</dd>
+      <dt>Serial</dt>          <dd id="info-serial">—</dd>
+      <dt>SAP Number</dt>      <dd id="info-sap">—</dd>
+      <dt>Production Date</dt> <dd id="info-production">—</dd>
+      <div class="mera-only"><dt>Initial Operation</dt><dd id="info-initial">—</dd></div>
+      <dt>Firmware</dt>        <dd id="info-firmware">—</dd>
+      <dt>Cloud firmware</dt>  <dd id="info-cloud-firmware">—</dd>
+      <dt>Update available</dt><dd id="info-fw-update">—</dd>
+      <div class="mera-only">
+        <dt>Filter days left</dt>    <dd id="info-filter-days">—</dd>
+        <dt>Last filter reset</dt>   <dd id="info-filter-reset">—</dd>
+        <dt>Next filter change</dt>  <dd id="info-filter-next">—</dd>
+        <dt>Filter resets</dt>       <dd id="info-filter-count">—</dd>
+      </div>
+    </dl>
+
+    <h2>User Profile</h2>
+    <div class="ps-sections">
+
+      <!-- 1. Shower -->
+      <div class="ps-section">
+        <div class="ps-section-title">Shower</div>
+        <div class="ps-row">
+          <span>Water Temperature</span>
+          <div class="ps-stepper" data-id="6" data-kind="profile" data-min="0" data-max="5">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-6">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Spray Arm Position</span>
+          <div class="ps-stepper" data-id="4" data-kind="profile" data-min="0" data-max="4">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-4">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Spray Intensity</span>
+          <div class="ps-stepper" data-id="2" data-kind="profile" data-min="0" data-max="4">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-2">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Oscillation</span>
+          <label class="ios-toggle">
+            <input type="checkbox" id="ps-tog-1" onchange="setProfileSetting(1,this.checked?1:0,null)">
+            <span class="ios-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 2. Lady Shower -->
+      <div class="ps-section mera-only">
+        <div class="ps-section-title">Lady Shower</div>
+        <div class="ps-row">
+          <span>Water Temperature</span>
+          <div class="ps-stepper" data-id="6" data-kind="profile" data-min="0" data-max="5">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-6b">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Spray Arm Position</span>
+          <div class="ps-stepper" data-id="5" data-kind="profile" data-min="0" data-max="4">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-5">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Spray Intensity</span>
+          <div class="ps-stepper" data-id="3" data-kind="profile" data-min="0" data-max="4">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-3">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Dryer -->
+      <div class="ps-section mera-only">
+        <div class="ps-section-title">Dryer</div>
+        <div class="ps-row">
+          <span>Dryer</span>
+          <label class="ios-toggle">
+            <input type="checkbox" id="ps-tog-9" onchange="setProfileSetting(9,this.checked?1:0,null)">
+            <span class="ios-toggle-track"></span>
+          </label>
+        </div>
+        <div class="ps-row">
+          <span>Air Temperature</span>
+          <div class="ps-stepper" data-id="8" data-kind="profile" data-min="0" data-max="5">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-8">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Dryer Spray Intensity</span>
+          <div class="ps-stepper" data-id="13" data-kind="profile" data-min="0" data-max="4">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-13">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Orientation Light -->
+      <div class="ps-section mera-only">
+        <div class="ps-section-title">Orientation Light</div>
+        <div class="ps-row">
+          <span>Activation</span>
+          <select id="cs-sel-3" class="ps-sel" onchange="setCommonSetting(3,parseInt(this.value),this)">
+            <option value="0">Off</option>
+            <option value="1">On</option>
+            <option value="2">When Approached</option>
+          </select>
+        </div>
+        <div class="ps-row">
+          <span>Brightness</span>
+          <div class="ps-stepper" data-id="1" data-kind="common" data-min="0" data-max="4">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="cs-sv-1">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Colour</span>
+          <div id="cs-color-2" style="display:flex;gap:0.4rem;flex-wrap:wrap">
+            <span class="cs-swatch" data-val="5" style="background:#fff1d8" title="Warm White"  onclick="setCommonSetting(2,5,this)"></span>
+            <span class="cs-swatch" data-val="4" style="background:#ffee7c" title="Yellow"      onclick="setCommonSetting(2,4,this)"></span>
+            <span class="cs-swatch" data-val="3" style="background:#ffad3f" title="Orange"      onclick="setCommonSetting(2,3,this)"></span>
+            <span class="cs-swatch" data-val="2" style="background:#eb4994" title="Magenta"     onclick="setCommonSetting(2,2,this)"></span>
+            <span class="cs-swatch" data-val="6" style="background:#e4efff" title="Cold White"  onclick="setCommonSetting(2,6,this)"></span>
+            <span class="cs-swatch" data-val="1" style="background:#96f3f3" title="Turquoise"   onclick="setCommonSetting(2,1,this)"></span>
+            <span class="cs-swatch" data-val="0" style="background:#117aff" title="Blue"        onclick="setCommonSetting(2,0,this)"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Odour Extraction -->
+      <div class="ps-section mera-only">
+        <div class="ps-section-title">Odour Extraction</div>
+        <div class="ps-row">
+          <span>Odour Extraction</span>
+          <label class="ios-toggle">
+            <input type="checkbox" id="ps-tog-0" onchange="setProfileSetting(0,this.checked?1:0,null)">
+            <span class="ios-toggle-track"></span>
+          </label>
+        </div>
+        <div class="ps-row">
+          <span>Run-On</span>
+          <label class="ios-toggle">
+            <input type="checkbox" id="cs-tog-0" onchange="setCommonSetting(0,this.checked?1:0,null)">
+            <span class="ios-toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 6. WC Lid -->
+      <div class="ps-section mera-only">
+        <div class="ps-section-title">WC Lid</div>
+        <div class="ps-row">
+          <span>Sensor Sensitivity</span>
+          <div class="ps-stepper" data-id="4" data-kind="common" data-min="0" data-max="4">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="cs-sv-4">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+        <div class="ps-row">
+          <span>Open Automatically</span>
+          <label class="ios-toggle">
+            <input type="checkbox" id="cs-tog-6" onchange="setCommonSetting(6,this.checked?1:0,null)">
+            <span class="ios-toggle-track"></span>
+          </label>
+        </div>
+        <div class="ps-row">
+          <span>Close Automatically</span>
+          <label class="ios-toggle">
+            <input type="checkbox" id="cs-tog-7" onchange="setCommonSetting(7,this.checked?1:0,null)">
+            <span class="ios-toggle-track"></span>
+          </label>
+        </div>
+        <div class="ps-row">
+          <span>Maximum Lid Position</span>
+          <span class="ps-not-avail">not mapped</span>
+        </div>
+      </div>
+
+      <!-- 7. Seat Heating -->
+      <div class="ps-section mera-only">
+        <div class="ps-section-title">Seat Heating</div>
+        <div class="ps-row">
+          <span>Temperature</span>
+          <div class="ps-stepper" data-id="7" data-kind="profile" data-min="0" data-max="5">
+            <button class="ps-step-btn" onclick="stepDec(this)">−</button>
+            <span class="ps-step-val" id="ps-sv-7">—</span>
+            <button class="ps-step-btn" onclick="stepInc(this)">+</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <h2>Commands</h2>
+    <div class="controls">
+      <button class="mera-only" onclick="sendPost('/command/toggle-lid', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" fill-rule="evenodd" d="M11.6472727 1.69018182L12.6098909 2.3744L5.453 20.4152324L22.9617455 20.4158545C23.1502545 20.4158545 23.3304727 20.4948364 23.4552727 20.6322909C23.5809455 20.7701818 23.6420364 20.9569455 23.6241455 21.1450182L23.6136727 21.2082909L23.1716364 23L22.3246545 22.7914182L22.6946909 21.2885818L1.87272727 21.2885818L1.87272727 22.8957091L1 22.8957091L1 21.1048727C1 20.7248 1.30894545 20.4158545 1.68901818 20.4158545L3.096 20.4152324L1.40669091 19.4453818C1.08901818 19.2621091 0.979054545 18.8554182 1.16145455 18.5381818L10.7165091 1.89352727C10.8077091 1.73512727 10.9608727 1.62254545 11.1362909 1.58370909C11.3121455 1.54530909 11.4980364 1.58414545 11.6472727 1.69018182ZM11.3474909 2.54763636L2.02196364 18.7925818L4.57687273 20.2592L11.5464727 2.68901818L11.3474909 2.54763636ZM22.9617455 19.0186182L22.9617455 19.8913455L6.19883636 19.8913455L6.19883636 19.0186182L22.9617455 19.0186182ZM15.2446545 5.34385455L15.7460364 7.67578182L13.5847273 8.68552727L13.2155636 7.89483636L14.2414545 7.41570909L11.9274182 6.26632727L12.3153455 5.4848L14.6293818 6.63418182L14.3911273 5.52756364L15.2446545 5.34385455ZM6.6112 1.59810909L7.0528 2.35083636L6.07665455 2.92421818L8.48843636 3.85149091L8.17556364 4.66618182L5.76378182 3.73890909L6.10501818 4.81847273L5.27243636 5.08116364L4.55418182 2.8064L6.6112 1.59810909Z"/>
+        </svg>
+        Toggle Lid
+      </button>
+      <button id="btn-toggle-anal" onclick="sendPost('/command/toggle-anal', this)" disabled title="Requires user to be sitting">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 448 428" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="m 203.79966,346.75 c -1.2022,-0.94954 -1.86226,-4.73531 -2.74608,-15.75 -2.35244,-29.31749 -8.0269,-57.79937 -15.0419,-75.5 -5.14961,-12.99377 -14.64006,-30.5059 -21.43725,-39.55685 -7.92285,-10.54982 -21.34352,-23.55048 -34.01426,-32.94974 -5.34752,-3.96684 -10.5963,-8.62566 -11.66396,-10.35292 C 114.16783,164.99087 119.21672,158 129.46974,158 c 9.71459,0 13.01754,1.92407 27.10548,15.78984 15.59354,15.34761 23.38411,26.07561 32.46808,44.71016 15.19349,31.16739 22.81312,65.09452 25.65008,114.2095 0.49238,8.5244 0.31497,10.62882 -1.07489,12.75 -1.85813,2.83587 -7.0057,3.51242 -9.81883,1.2905 z m 26.1686,-0.28825 c -1.65332,-1.99212 -0.7393,-30.78254 1.52265,-47.96175 4.60401,-34.9668 15.31839,-68.84 29.25853,-92.5 13.67864,-23.21617 31.51096,-40.40311 49.14183,-47.3633 5.22482,-2.06262 8.94673,-1.48534 13.13268,2.03691 7.30964,6.15066 0.95565,15.41269 -21.75846,31.7167 -2.87899,2.06651 -8.41851,7.21158 -12.31005,11.43349 -27.24729,29.56042 -43.97751,75.25114 -46.56711,127.1762 -0.74214,14.8809 -1.65073,17 -7.28894,17 -2.24886,0 -4.3863,-0.64077 -5.13113,-1.53825 z M 196.83705,188.94241 c -0.91462,-0.5194 -2.89004,-4.20642 -4.38983,-8.19338 -4.93955,-13.13107 -16.47411,-34.60916 -26.79296,-49.89024 -12.92478,-19.14018 -12.62209,-18.57323 -12.63952,-23.67453 -0.0192,-5.61132 1.23338,-7.786118 5.22758,-9.076642 4.05161,-1.309073 9.21727,-0.207076 14.97914,3.195522 7.12811,4.20941 10.69749,8.75555 14.0062,17.839 12.28698,33.73158 14.15964,41.3477 14.16806,57.62163 0.006,11.02386 -1.15092,14.11384 -4.55867,12.17864 z m 44.51221,-2.47463 c -1.21424,-3.16427 0.5892,-22.0002 3.07429,-32.10929 1.37118,-5.57783 4.35113,-15.19102 6.62211,-21.36265 2.27097,-6.17162 4.77218,-13.3868 5.55823,-16.03373 2.7412,-9.23062 15.55911,-18.971972 24.89611,-18.920538 6.48668,0.03573 9.5,3.623498 9.5,11.311028 0,3.8859 -0.61209,5.19535 -4.58822,9.81575 -8.56077,9.94786 -19.26894,27.27329 -27.39969,44.33165 -4.45661,9.35 -8.86999,18.575 -9.80751,20.5 -1.94223,3.98796 -6.69858,5.48218 -7.85532,2.46778 z m -22.21343,-44.80411 c -3.46918,-4.18012 -5.4889,-14.60323 -7.68575,-39.66367 -1.01432,-11.570737 -2.33871,-20.641874 -3.53591,-24.218455 -3.56475,-10.649449 -1.61447,-17.770994 5.85159,-21.367413 4.70772,-2.267722 13.25204,-2.287712 16.68396,-0.03904 6.42698,4.211123 6.91148,7.809436 3.7869,28.124903 -1.18429,7.7 -3.07776,23.000005 -4.20773,34.000005 -1.94402,18.92463 -2.19121,20.12097 -4.59745,22.25 -2.90444,2.56982 -4.70433,2.83104 -6.29561,0.91366 z"/>
+        </svg>
+        Toggle Anal Shower
+      </button>
+      <button id="btn-toggle-lady" class="mera-only" onclick="sendPost('/command/toggle-lady', this)" disabled title="Requires user to be sitting">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" fill-rule="evenodd" d="M14.5884683 3.00672057C14.5884683 1.88957261 13.6510881 1 12.5013758 1C11.3493705 1 10.4147419 1.88957261 10.4147419 3.00672057C10.4147419 4.11196052 11.3493705 5.00814869 12.5013758 5.00814869C13.6510881 5.00814869 14.5884683 4.11196052 14.5884683 3.00672057M16.9250396 15.6248031L14.2426832 15.9908642L13.600642 21.6308516L13.5676228 21.6859813C13.5460685 21.870335 13.3828066 22 13.1869841 22L11.8226465 22C11.6309514 22 11.4704411 21.870335 11.4456766 21.6859813L10.8063871 15.9908642L8.12494789 15.6248031L10.8063871 9.49041269L10.8063871 9.46836081C10.8091387 9.44983724 10.8146419 9.41543631 10.8146419 9.37265568C10.8146419 9.28621233 10.7563996 9.19447653 10.6568832 9.14243411L10.4147419 8.99733277L10.4252898 9.0493752C10.4078629 9.0493752 10.3849329 9.04320067 10.3601684 9.04320067C10.2556074 9.04320067 10.1643459 9.11112045 10.1235304 9.19447653L8.50191779 12.8056915L8.47577754 12.8171585C8.42303844 12.9494697 8.28958559 13.0266513 8.15383974 13.0266513C8.09376303 13.0266513 8.06624698 13.0200357 7.99974985 12.9993069L7.23434503 12.6733802C7.10501959 12.6222199 7 12.4969652 7 12.3593615C7 12.3214323 7.00550321 12.2623333 7.03439506 12.2296965L9.90707079 6.05473065L9.83782206 6.10059855C10.007963 5.741153 10.3711749 5.50563898 10.7807054 5.50563898L14.2426832 5.56429697L14.2330526 5.51842907C14.6343284 5.51842907 15.0062536 5.741153 15.1681397 6.10059855L17.9426749 12.1895621L17.9701909 12.2296965C17.9889936 12.2623333 18 12.3068781 18 12.3593615C18 12.4912318 17.9206621 12.6222199 17.7959226 12.6733802L17.0502376 13.0487031L17.0016259 12.9993069C16.9635621 13.0200357 16.8938547 13.0266513 16.8626699 13.0266513C16.7195864 13.0266513 16.5907196 12.9494697 16.5375219 12.8171585L14.878304 9.24034443L14.878304 9.19447653C14.8480364 9.11112045 14.7379722 9.04320067 14.6444176 9.04320067C14.6315768 9.04320067 14.5994747 9.0493752 14.5747102 9.0493752L14.3733845 9.12302846L14.3403652 9.14243411C14.2426832 9.19447653 14.1789377 9.28621233 14.1789377 9.37265568C14.1789377 9.41543631 14.1991162 9.44983724 14.2087468 9.46836081L16.9250396 15.6248031"/>
+        </svg>
+        Toggle Lady Shower
+      </button>
+      <button id="btn-toggle-dryer" class="mera-only" onclick="sendPost('/command/toggle-dryer', this)" disabled title="Requires user to be sitting">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" fill-rule="evenodd" d="M21 2L21 6.0219159L13.7684665 6.0219159L13.8069428 7.0772757C13.8069428 9.88349134 11.6008054 12.1468179 8.89147879 12.1468179C8.72558126 12.1468179 8.57467447 12.1334133 8.40827724 12.1241331L8.40827724 12.1241331L8.34031921 12.1839386L7.10658123 18.5016616L6.26510097 18.2108834L6.238 18.201L5.41356569 22L4.6032257 21.5928465L5.278 17.882L4.60512625 17.6375761L5.42062256 10.6558064C4.50418859 9.7216042 4 8.41568022 4 7.0772757C4 4.29426045 6.20313924 2.02938716 8.89147879 2.02938716L8.89147879 2.02938716L8.91246583 2L21 2ZM8.89147879 4.23136162C7.37991241 4.23136162 6.13468152 5.51769416 6.13468152 7.0772757C6.13468152 8.64974634 7.37991241 9.93092324 8.89147879 9.93092324C10.4275301 9.93092324 11.666265 8.64974634 11.666265 7.0772757C11.666265 5.51769416 10.4275301 4.23136162 8.89147879 4.23136162Z"/>
+        </svg>
+        Toggle Dryer
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/toggle-orientation-light', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M12 2a7 7 0 0 1 7 7c0 2.6-1.41 4.88-3.5 6.13V17a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1.87C6.41 13.88 5 11.6 5 9a7 7 0 0 1 7-7m-2 17h4v1a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-1z"/>
+        </svg>
+        Toggle Orientation Light
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/reset-filter-counter', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7zm-1-11h2v5h-2zm0 6h2v2h-2z"/>
+        </svg>
+        Reset Filter Counter
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/trigger-flush-manually', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M12 2c-5.33 4.55-8 8.48-8 11.8C4 17.78 7.58 22 12 22s8-4.22 8-8.2C20 10.48 17.33 6.55 12 2z"/>
+        </svg>
+        Trigger Flush
+      </button>
+      <button onclick="sendPost('/command/prepare-descaling', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M7 3h10v2l-2 7 2 7v2H7v-2l2-7-2-7V3zm2.31 9L8 17h8l-1.31-5H9.31zM9 5l1.5 5h3L15 5H9z"/>
+        </svg>
+        Prepare Descaling
+      </button>
+      <button onclick="sendPost('/command/confirm-descaling', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M21 7L9 19l-5.5-5.5 1.41-1.41L9 16.17 19.59 5.59 21 7z"/>
+        </svg>
+        Confirm Descaling
+      </button>
+      <button onclick="sendPost('/command/cancel-descaling', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+        </svg>
+        Cancel Descaling
+      </button>
+      <button onclick="sendPost('/command/postpone-descaling', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/>
+        </svg>
+        Postpone Descaling
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/start-cleaning-device', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14l-5-5 1.41-1.41L12 14.17l7.59-7.59L21 8l-9 9z"/>
+        </svg>
+        Start Cleaning
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/execute-next-cleaning-step', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+        </svg>
+        Next Cleaning Step
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/start-lid-calibration', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
+        </svg>
+        Start Lid Calibration
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/lid-offset-increment', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+        </svg>
+        Lid Offset +
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/lid-offset-decrement', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M19 13H5v-2h14v2z"/>
+        </svg>
+        Lid Offset −
+      </button>
+      <button class="mera-only" onclick="sendPost('/command/lid-offset-save', this)">
+        <span class="spinner"></span>
+        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="18" height="18" style="flex-shrink:0">
+          <path fill="currentColor" d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4zm-5 16a3 3 0 0 1-3-3 3 3 0 0 1 3-3 3 3 0 0 1 3 3 3 3 0 0 1-3 3zm3-10H5V5h10v4z"/>
+        </svg>
+        Lid Offset Save
+      </button>
+    </div>
+
+    <h2>Connection</h2>
+    <div class="conn-panel">
+      <div class="conn-row">
+        <span class="conn-badge" id="connBadge">—</span>
+        <span class="conn-detail" id="connDetail">—</span>
+      </div>
+      <div class="conn-meta" id="connMeta"></div>
+      <div class="conn-row" style="margin-top:0.25rem">
+        <span style="color:var(--muted);font-size:0.8rem;white-space:nowrap">BLE mode:</span>
+        <span id="bleConnModeLabel" style="font-size:0.8rem;font-weight:500">—</span>
+      </div>
+      <div class="conn-row">
+        <span style="color:var(--muted);font-size:0.8rem;white-space:nowrap">Poll interval:</span>
+        <span id="pollIntervalLabel" style="font-size:0.8rem;font-weight:500">—</span>
+      </div>
+      <div class="conn-row">
+        <span id="connectMsLabel" style="color:var(--muted);font-size:0.8rem;white-space:nowrap">Connect:</span>
+        <span id="connectMs" style="font-size:0.8rem;font-weight:500">—</span>
+        <span id="bleMsLabel" style="color:var(--muted);font-size:0.8rem;margin-left:1rem;white-space:nowrap;display:none">BLE:</span>
+        <span id="bleMs" style="font-size:0.8rem;font-weight:500;display:none">—</span>
+        <span style="color:var(--muted);font-size:0.8rem;margin-left:1.5rem;white-space:nowrap">Poll:</span>
+        <span id="pollMs" style="font-size:0.8rem;font-weight:500">—</span>
+      </div>
+    </div>
+
+    <h2>ESPHome Proxy</h2>
+    <div class="conn-panel" id="esphomeProxyPanel" style="display:none">
+      <div class="conn-row">
+        <span class="conn-badge" id="esphomeProxyBadge">—</span>
+        <span class="conn-detail" id="esphomeProxyDetail">—</span>
+      </div>
+      <div class="conn-meta" id="esphomeProxyMeta"></div>
+    </div>
+
+    <h2>Actions</h2>
+    <div class="controls">
+      <button id="connBtn" onclick="sendPost(connBtnUrl(), this)">
+        <span class="spinner"></span><span id="connBtnLabel">Reconnect</span>
+      </button>
+      <button id="bleConnModeBtn" onclick="toggleBleConnectionMode(this)">
+        <span class="spinner"></span><span id="bleConnModeBtnLabel">—</span>
+      </button>
+      <button id="esp32ApiModeBtn" onclick="toggleEsp32ApiConnection(this)" style="display:none">
+        <span class="spinner"></span><span id="esp32ApiModeBtnLabel">—</span>
+      </button>
+      <button id="esp32RestartBtn" onclick="sendPost('/esphome/restart', this)" style="display:none">
+        <span class="spinner"></span>ESP32: Restart
+      </button>
+      <div style="display:flex;align-items:center;gap:0.4rem">
+        <input id="pollIntervalInput" type="number" min="0" step="0.5"
+               style="width:5rem;padding:0.35rem 0.5rem;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);color:inherit;font-size:0.85rem"
+               placeholder="s">
+        <button onclick="setPollInterval(this)">
+          <span class="spinner"></span>Set Interval
+        </button>
+      </div>
+    </div>
+
+    <h2 id="queriesHeading" style="display:none">Queries</h2>
+    <div id="queriesSection" style="display:none">
+      <div class="controls">
+        <button onclick="queryGet('/data/system-parameters',    this, clearSystemParameters, onSystemParameters)">
+          <span class="spinner"></span>System Parameters
+        </button>
+        <button onclick="queryGet('/data/identification',        this, clearIdentification,    onIdentification)">
+          <span class="spinner"></span>Identification
+        </button>
+        <button class="mera-only" onclick="queryGet('/data/initial-operation-date',this, clearInitialOpDate,     onInitialOpDate)">
+          <span class="spinner"></span>Initial Op Date
+        </button>
+        <button class="mera-only" onclick="queryGet('/data/soc-versions',          this, clearSocVersions,       onSocVersions)">
+          <span class="spinner"></span>SOC Versions
+        </button>
+        <button class="mera-only" onclick="queryGet('/data/statistics-descale',   this, clearStatisticsDescale, onStatisticsDescale)">
+          <span class="spinner"></span>Descale Statistics
+        </button>
+        <button onclick="queryGet('/data/anal-shower-state',    this, clearAnalShowerState,   onAnalShowerState)">
+          <span class="spinner"></span>Anal Shower State
+        </button>
+        <button onclick="queryGet('/data/user-sitting-state',   this, clearUserSittingState,  onUserSittingState)">
+          <span class="spinner"></span>User Sitting State
+        </button>
+        <button class="mera-only" onclick="queryGet('/data/lady-shower-state',    this, clearLadyShowerState,   onLadyShowerState)">
+          <span class="spinner"></span>Lady Shower State
+        </button>
+        <button class="mera-only" onclick="queryGet('/data/dryer-state',          this, clearDryerState,        onDryerState)">
+          <span class="spinner"></span>Dryer State
+        </button>
+      </div>
+      <div class="conn-row" id="queryTimingRow" style="display:none;margin-top:0.5rem">
+        <span id="queryEspApiLabel" style="color:var(--muted);font-size:0.8rem;white-space:nowrap;display:none">ESP32:</span>
+        <span id="queryEspApiMs" style="font-size:0.8rem;font-weight:500;display:none">—</span>
+        <span id="queryBleLabel" style="color:var(--muted);font-size:0.8rem;margin-left:1rem;white-space:nowrap;display:none">BLE:</span>
+        <span id="queryBleMs" style="font-size:0.8rem;font-weight:500;display:none">—</span>
+        <span id="queryConnectLabel" style="color:var(--muted);font-size:0.8rem;white-space:nowrap">Connect:</span>
+        <span id="queryConnectMs" style="font-size:0.8rem;font-weight:500">—</span>
+        <span style="color:var(--muted);font-size:0.8rem;margin-left:1.5rem;white-space:nowrap">Query:</span>
+        <span id="queryMs" style="font-size:0.8rem;font-weight:500">—</span>
+      </div>
+      <dl class="info-grid mera-only" id="socVersionsGrid" style="display:none;margin-top:0.75rem">
+        <dt>SOC Versions</dt><dd id="info-soc-versions">—</dd>
+      </dl>
+      <dl class="info-grid mera-only" id="descaleStatsGrid" style="display:none;margin-top:0.75rem">
+        <dt>Days until next descale</dt>      <dd id="ds-days-next">—</dd>
+        <dt>Days until shower restricted</dt> <dd id="ds-days-restricted">—</dd>
+        <dt>Cycles until confirmation</dt>    <dd id="ds-cycles-confirm">—</dd>
+        <dt>Number of descale cycles</dt>     <dd id="ds-num-cycles">—</dd>
+        <dt>Last descale</dt>                 <dd id="ds-last-descale">—</dd>
+        <dt>Unposted shower cycles</dt>       <dd id="ds-unposted">—</dd>
+      </dl>
+    </div>
+
+    <!-- ── Alba-only: Misc Queries ────────────────────────────────────── -->
+    <section class="alba-only" id="albaMiscQueriesSection" style="margin-top:1.5rem">
+      <h2>
+        <button class="section-toggle-btn" onclick="toggleAlbaMiscQueries()">
+          <span id="albaMiscQueriesChevron" style="display:inline-block;transition:transform 0.2s">&#9654;</span>
+          Alba Misc Queries
+        </button>
+      </h2>
+      <div id="albaMiscQueriesPanel" style="display:none">
+        <div class="controls" style="margin-bottom:0.5rem">
+          <button onclick="queryGet('/alba/misc-state', this, clearAlbaMiscState, onAlbaMiscState)">
+            <span class="spinner"></span>Read All
+          </button>
+        </div>
+        <div class="misc-grid" id="albaMiscGrid" style="display:none">
+          <span class="misc-group-header">Active Shower</span>
+          <span class="misc-lbl">Intensity</span>      <span id="am-intensity">—</span>
+          <span class="misc-lbl">Position</span>       <span id="am-position">—</span>
+          <span class="misc-lbl">Temperature</span>    <span id="am-temperature">—</span>
+          <span class="misc-lbl">Oscillation</span>    <span id="am-oscillation">—</span>
+          <span class="misc-group-header">Spray Arm</span>
+          <span class="misc-lbl">Cleaning Status</span><span id="am-spray-arm-cleaning">—</span>
+          <span class="misc-group-header">Descaling</span>
+          <span class="misc-lbl">Status</span>                        <span id="am-desc-status">—</span>
+          <span class="misc-lbl">Days until next</span>               <span id="am-desc-days">—</span>
+          <span class="misc-lbl">Cycles total</span>                  <span id="am-desc-cycles">—</span>
+          <span class="misc-lbl">Credits until next</span>            <span id="am-desc-credits">—</span>
+          <span class="misc-lbl">Lock remaining days</span>           <span id="am-desc-lock-days">—</span>
+          <span class="misc-lbl">Relock remaining cycles</span>       <span id="am-desc-relock-cycles">—</span>
+          <span class="misc-lbl">Lock status</span>                   <span id="am-desc-lock-status">—</span>
+          <span class="misc-lbl">Unaccounted shower cycles</span>     <span id="am-desc-unaccounted">—</span>
+          <span class="misc-lbl">Last descaling</span>                <span id="am-desc-ts-last">—</span>
+          <span class="misc-lbl">Last descaling request</span>        <span id="am-desc-ts-req">—</span>
+          <span class="misc-group-header">User / Time</span>
+          <span class="misc-lbl">User detection</span>   <span id="am-user-detect">—</span>
+          <span class="misc-lbl">RTC Time</span>         <span id="am-rtc-time">—</span>
+          <span class="misc-lbl">Operation time total</span>          <span id="am-op-total">—</span>
+          <span class="misc-lbl">Operation time since boot</span>     <span id="am-op-boot">—</span>
+          <span class="misc-group-header">Errors (0 = OK)</span>
+          <span class="misc-lbl">Power supply</span>     <span id="am-err-psu">—</span>
+          <span class="misc-lbl">Water heater</span>     <span id="am-err-heater">—</span>
+          <span class="misc-lbl">Level control</span>    <span id="am-err-level">—</span>
+          <span class="misc-lbl">User detection</span>   <span id="am-err-user-det">—</span>
+          <span class="misc-lbl">Water pump</span>       <span id="am-err-pump">—</span>
+          <span class="misc-lbl">Spray arm drive</span>  <span id="am-err-spray-arm">—</span>
+          <span class="misc-lbl">Maintenance request</span><span id="am-err-maintenance">—</span>
+          <span class="misc-lbl">Descaling</span>        <span id="am-err-descaling">—</span>
+          <span class="misc-group-header">Modes</span>
+          <span class="misc-lbl">Demo mode</span>            <span id="am-demo-mode">—</span>
+          <span class="misc-lbl">Showroom mode</span>        <span id="am-showroom-mode">—</span>
+          <span class="misc-lbl">Dry run mode</span>         <span id="am-dry-run-mode">—</span>
+          <span class="misc-lbl">Registration level</span>   <span id="am-reg-level">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Alba-only: Misc Commands ───────────────────────────────────── -->
+    <section class="alba-only" id="albaMiscCommandsSection" style="margin-top:1rem">
+      <h2>
+        <button class="section-toggle-btn" onclick="toggleAlbaMiscCommands()">
+          <span id="albaMiscCommandsChevron" style="display:inline-block;transition:transform 0.2s">&#9654;</span>
+          Alba Misc Commands
+        </button>
+      </h2>
+      <div id="albaMiscCommandsPanel" style="display:none">
+        <div class="controls" style="flex-direction:column;align-items:flex-start;gap:0.75rem">
+
+          <!-- Spray arm cleaning toggle -->
+          <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Spray Arm Cleaning:</span>
+            <button onclick="albaCmd('spray-arm-cleaning', 1, this)"><span class="spinner"></span>Start</button>
+            <button onclick="albaCmd('spray-arm-cleaning', 0, this)"><span class="spinner"></span>Stop</button>
+          </div>
+
+          <!-- Active intensity -->
+          <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Active Intensity (0–4):</span>
+            <div class="ps-stepper" data-alba-cmd="set-active-intensity" data-min="0" data-max="4">
+              <button class="ps-step-btn" onclick="albaStepDec(this)">−</button>
+              <span class="ps-step-val">0</span>
+              <button class="ps-step-btn" onclick="albaStepInc(this)">+</button>
+            </div>
+          </div>
+
+          <!-- Active position -->
+          <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Active Position (0–4):</span>
+            <div class="ps-stepper" data-alba-cmd="set-active-position" data-min="0" data-max="4">
+              <button class="ps-step-btn" onclick="albaStepDec(this)">−</button>
+              <span class="ps-step-val">0</span>
+              <button class="ps-step-btn" onclick="albaStepInc(this)">+</button>
+            </div>
+          </div>
+
+          <!-- Active temperature -->
+          <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Active Temperature (0–5):</span>
+            <div class="ps-stepper" data-alba-cmd="set-active-temperature" data-min="0" data-max="5">
+              <button class="ps-step-btn" onclick="albaStepDec(this)">−</button>
+              <span class="ps-step-val">0</span>
+              <button class="ps-step-btn" onclick="albaStepInc(this)">+</button>
+            </div>
+          </div>
+
+          <!-- Active oscillation -->
+          <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Active Oscillation:</span>
+            <label class="ios-toggle">
+              <input type="checkbox" id="alba-osc-tog" onchange="albaCmd('set-active-oscillation', this.checked?1:0, null)">
+              <span class="ios-toggle-track"></span>
+            </label>
+          </div>
+
+          <!-- Sync RTC -->
+          <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+            <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">RTC Clock:</span>
+            <button onclick="albaCmdNoVal('sync-rtc', this)"><span class="spinner"></span>Sync to Browser Time</button>
+          </div>
+
+          <!-- Dangerous commands -->
+          <div style="margin-top:1rem;border:1px solid rgba(244,67,54,0.4);border-radius:8px;padding:0.75rem">
+            <div style="color:#f44336;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;margin-bottom:0.75rem">
+              ⚠ Dangerous — may cause unexpected device behaviour
+            </div>
+
+            <!-- RESTART -->
+            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.6rem">
+              <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Restart:</span>
+              <button style="border-color:rgba(244,67,54,0.5)" onclick="albaCmdNoVal('restart', this)"><span class="spinner"></span>Restart Device</button>
+            </div>
+
+            <!-- START_BOOTLOADER -->
+            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.6rem">
+              <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Start Bootloader (0–1):</span>
+              <div class="ps-stepper" data-alba-cmd="start-bootloader" data-min="0" data-max="1">
+                <button class="ps-step-btn" onclick="albaStepDec(this)">−</button>
+                <span class="ps-step-val">0</span>
+                <button class="ps-step-btn" onclick="albaStepInc(this)">+</button>
+              </div>
+            </div>
+
+            <!-- LOAD_PROFILE -->
+            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.6rem">
+              <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Load Profile:</span>
+              <button style="border-color:rgba(244,67,54,0.5)" onclick="albaCmdNoVal('load-profile', this)"><span class="spinner"></span>Load Profile</button>
+              <span style="color:var(--muted);font-size:0.75rem;font-style:italic">could silently overwrite user profile</span>
+            </div>
+
+            <!-- START_USER_SESSION -->
+            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.6rem">
+              <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Start User Session:</span>
+              <button style="border-color:rgba(244,67,54,0.5)" onclick="albaCmdNoVal('start-user-session', this)"><span class="spinner"></span>Start User Session</button>
+              <span style="color:var(--muted);font-size:0.75rem;font-style:italic">unknown effect</span>
+            </div>
+
+            <!-- RESET -->
+            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+              <span style="color:var(--muted);font-size:0.82rem;min-width:11rem">Reset (0–4):</span>
+              <div class="ps-stepper" data-alba-cmd="reset" data-min="0" data-max="4">
+                <button class="ps-step-btn" onclick="albaStepDec(this)">−</button>
+                <span class="ps-step-val">0</span>
+                <button class="ps-step-btn" onclick="albaStepInc(this)">+</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="sysInfoSection" style="margin-top:1.5rem">
+      <h2>
+        <button onclick="toggleSysInfo()"
+          style="background:none;border:none;color:var(--muted);font:inherit;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.4rem">
+          <span id="sysInfoChevron" style="display:inline-block;transition:transform 0.2s">&#9654;</span>
+          System Info
+        </button>
+      </h2>
+      <div id="sysInfoPanel" style="display:none">
+        <dl class="info-grid">
+          <dt>App Version</dt>    <dd id="si-app-version">—</dd>
+          <dt>Python</dt>         <dd id="si-python">—</dd>
+          <dt>OS</dt>             <dd id="si-os">—</dd>
+          <dt>OS Distro</dt>      <dd id="si-os-distro">—</dd>
+          <dt>Machine</dt>        <dd id="si-machine">—</dd>
+          <dt>Environment</dt>    <dd id="si-env">—</dd>
+          <dt>Docker</dt>         <dd id="si-docker">—</dd>
+          <dt>BLE Address</dt>    <dd id="si-ble-addr">—</dd>
+          <dt>ESPHome</dt>        <dd id="si-esphome">—</dd>
+          <dt>Poll Interval</dt>  <dd id="si-poll">—</dd>
+          <dt>BLE Mode</dt>       <dd id="si-ble-mode">—</dd>
+          <dt>Log Level</dt>      <dd id="si-log">—</dd>
+          <dt>BlueZ</dt>          <dd id="si-bluez">—</dd>
+          <dt>BT Adapter</dt>     <dd id="si-bt-adapter">—</dd>
+          <dt>BT Firmware</dt>    <dd id="si-bt-fw">—</dd>
+          <dt>bleak</dt>          <dd id="si-lib-bleak">—</dd>
+          <dt>aioesphomeapi</dt>  <dd id="si-lib-aioesphomeapi">—</dd>
+          <dt>fastapi</dt>        <dd id="si-lib-fastapi">—</dd>
+          <dt>uvicorn</dt>        <dd id="si-lib-uvicorn">—</dd>
+          <dt>paho-mqtt</dt>      <dd id="si-lib-paho">—</dd>
+          <dt>aiorun</dt>         <dd id="si-lib-aiorun">—</dd>
+        </dl>
+      </div>
+    </section>
+
+    <section id="perfSection" style="margin-top:1.5rem">
+      <h2>
+        <button onclick="togglePerf()"
+          style="background:none;border:none;color:var(--muted);font:inherit;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.1em;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.4rem">
+          <span id="perfChevron" style="display:inline-block;transition:transform 0.2s">&#9654;</span>
+          Performance Stats
+        </button>
+      </h2>
+      <div id="perfPanel" style="display:none">
+        <p style="font-size:0.8rem;color:var(--muted);margin:0.25rem 0 0.75rem">
+          In-memory timing statistics accumulated since the bridge started. Connect times (BLE, ESP32)
+          are only counted when a new connection was established.
+        </p>
+        <div id="perfContent" style="overflow-x:auto"></div>
+        <button onclick="loadPerf()" id="perfRefreshBtn"
+          style="margin-top:0.5rem;font-size:0.75rem;padding:0.2rem 0.6rem;cursor:pointer">
+          Refresh
+        </button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>API: <span id="apiBase"></span> &nbsp;|&nbsp; aquaclean-bridge <span id="bridgeVersion">—</span></footer>
+
+  <script>
+    const apiBase = window.location.origin;
+    document.getElementById('apiBase').textContent = apiBase;
+
+    fetch(apiBase + '/version')
+      .then(r => r.json())
+      .then(d => { document.getElementById('bridgeVersion').textContent = d.version; })
+      .catch(() => {});
+
+    // --- SSE ---
+    const dot   = document.getElementById('sseDot');
+    const label = document.getElementById('sseLabel');
+
+    function connectSSE() {
+      const es = new EventSource(apiBase + '/events');
+
+      es.onopen = () => {
+        dot.classList.add('live');
+        label.textContent = 'live';
+        onServerRegained();
+      };
+
+      es.onerror = () => {
+        dot.classList.remove('live');
+        label.textContent = 'disconnected';
+        onServerLost();
+      };
+
+      es.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          console.log('[SSE] Received:', data);
+          if (data.type === 'state') {
+            updateCards(data);
+            onStateReceived(data);
+          }
+        } catch (err) {
+          console.error('[SSE] Parse error:', err, 'Raw data:', e.data);
+        }
+      };
+    }
+
+    connectSSE();
+
+    // --- Server lost / regained (SSE disconnected / reconnected) ---
+    function onServerLost() {
+      document.getElementById('offlineBanner').classList.add('visible');
+      document.getElementById('connBtn').style.display = 'none';
+      document.getElementById('bleConnModeBtn').style.display = 'none';
+
+      _pollEpoch = null;
+      const pollLabel = document.getElementById('pollLabel');
+      const pollBar   = document.getElementById('pollBar');
+      if (pollLabel) pollLabel.textContent = '—';
+      if (pollBar)   pollBar.style.width   = '0%';
+
+      ['sitting', 'anal', 'lady', 'dryer'].forEach(k => updateCard(k, null));
+      updateShowerButtons(null);
+      updateConnection({ ble_status: 'disconnected', ble_device_name: null, ble_device_address: null, ble_connected_at: null });
+    }
+
+    function onServerRegained() {
+      document.getElementById('offlineBanner').classList.remove('visible');
+      document.getElementById('connBtn').style.display = '';
+      document.getElementById('bleConnModeBtn').style.display = '';
+    }
+
+    // --- Status cards ---
+    let _analQueryActive    = false;
+    let _sittingQueryActive = false;
+    let _ladyQueryActive    = false;
+    let _dryerQueryActive   = false;
+
+    function updateShowerButtons(sitting) {
+      const notSitting = sitting !== true;
+      ['btn-toggle-anal', 'btn-toggle-lady', 'btn-toggle-dryer'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn && !btn.classList.contains('loading')) btn.disabled = notSitting;
+      });
+    }
+
+    function updateCards(state) {
+      console.log('[updateCards] Processing state:', state);
+      if (!_sittingQueryActive) updateCard('sitting', state.is_user_sitting);
+      if ('is_user_sitting' in state) updateShowerButtons(state.is_user_sitting);
+      if (!_analQueryActive)    updateCard('anal',    state.is_anal_shower_running);
+      if (!_ladyQueryActive)    updateCard('lady',    state.is_lady_shower_running);
+      if (!_dryerQueryActive)   updateCard('dryer',   state.is_dryer_running);
+      if ('ble_status' in state) {
+        console.log('[updateCards] ble_status found in state, calling updateConnection');
+        updateConnection(state);
+      } else {
+        console.warn('[updateCards] ble_status NOT in state!');
+      }
+      if ('esphome_proxy_enabled' in state) updateESPHomeProxy(state);
+    }
+
+    function updateCard(key, value) {
+      const card = document.getElementById('card-' + key);
+      const val  = document.getElementById('val-'  + key);
+      if (card) card.classList.toggle('active', value === true);
+      if (val)  val.textContent = (value === null || value === undefined) ? '—' : (value ? 'ON' : 'OFF');
+      // Switch on/off SVG variants where available
+      const svgOn  = document.getElementById('svg-' + key + '-on');
+      const svgOff = document.getElementById('svg-' + key + '-off');
+      if (svgOn && svgOff) {
+        svgOn.style.display  = value === true  ? '' : 'none';
+        svgOff.style.display = value === false ? '' : 'none';
+      }
+    }
+
+    // --- Poll countdown ---
+    // Uses poll_epoch (Unix time of when polling started) and poll_interval
+    // from the SSE state. Any client connecting at any time computes the same
+    // deterministic countdown: elapsed = (now - epoch) % interval.
+    let _pollEpoch    = null;
+    let _pollInterval = null;
+
+    function applyDeviceType(t) {
+      document.body.classList.toggle('device-alba', t === 'alba');
+      document.body.classList.toggle('device-mera', t === 'mera');
+    }
+
+    function onStateReceived(state) {
+      if (state.device_type != null) applyDeviceType(state.device_type);
+      if (state.poll_interval !== undefined) {
+        _pollInterval = state.poll_interval || null;
+        const lbl = document.getElementById('pollIntervalLabel');
+        if (lbl) lbl.textContent = state.poll_interval > 0 ? state.poll_interval + ' s' : 'disabled';
+        const inp = document.getElementById('pollIntervalInput');
+        if (inp && inp !== document.activeElement) inp.value = state.poll_interval;
+      }
+      if (state.poll_epoch !== undefined) _pollEpoch = state.poll_epoch;
+      if (state.ble_connection !== undefined) updateBleConnectionMode(state.ble_connection);
+      if (state.esphome_api_connection !== undefined) updateEsp32ApiConnection(state.esphome_api_connection);
+      // Identification arrives via SSE state after the first on-demand poll.
+      if (state.sap_number != null) onIdentification(state);
+      if (state.ble_dis_info != null) onBleDisInfo(state);
+      if (state.initial_operation_date != null) onInitialOpDate(state);
+      if (state.firmware_versions != null) onFirmwareVersions(state.firmware_versions);
+      if (state.firmware_update != null) onFirmwareUpdate(state.firmware_update);
+      if (state.filter_status != null) onFilterStatus(state.filter_status);
+      if (state.profile_settings != null) onProfileSettings(state.profile_settings);
+      if (state.common_settings != null) onCommonSettings(state.common_settings);
+    }
+
+    (function tickCountdown() {
+      const label = document.getElementById('pollLabel');
+      const bar   = document.getElementById('pollBar');
+      if (_pollEpoch !== null && _pollInterval !== null) {
+        const nowSec    = Date.now() / 1000;
+        const elapsed   = nowSec - _pollEpoch;
+        const remaining = Math.max(0, _pollInterval - elapsed);
+        const pct       = (remaining / _pollInterval) * 100;
+        label.textContent = 'Next poll in ' + Math.ceil(remaining) + ' s';
+        bar.style.width = pct + '%';
+      } else {
+        const label = document.getElementById('pollLabel');
+        if (label) label.textContent = '—';
+      }
+      setTimeout(tickCountdown, 100);
+    })();
+
+    // --- Connection button ---
+    let _bleStatus = 'disconnected';
+
+    function connBtnUrl() {
+      return _bleStatus === 'connected' ? '/disconnect' : '/connect';
+    }
+
+    function updateConnBtn(status) {
+      _bleStatus = status;
+      const label = document.getElementById('connBtnLabel');
+      if (label) label.textContent = status === 'connected' ? 'BLE: Disconnect' : 'BLE: Reconnect';
+    }
+
+    // --- ESP32 proxy state ---
+    let _esp32Connected = false;
+
+    // --- BLE connection mode toggle ---
+    let _bleConnection = null;
+
+    function updateBleConnectionMode(mode) {
+      _bleConnection = mode;
+      const modeLabel = document.getElementById('bleConnModeLabel');
+      if (modeLabel) modeLabel.textContent = mode === 'persistent' ? 'Persistent' : 'On-Demand';
+      const btnLabel = document.getElementById('bleConnModeBtnLabel');
+      if (btnLabel) btnLabel.textContent = mode === 'persistent' ? 'BLE: Switch to On-Demand' : 'BLE: Switch to Persistent';
+      document.getElementById('queriesHeading').style.display = '';
+      document.getElementById('queriesSection').style.display = '';
+    }
+
+    // --- ESP32 API connection mode toggle ---
+    let _esp32ApiConnection = null;
+
+    function updateEsp32ApiConnection(mode) {
+      _esp32ApiConnection = mode;
+      const lbl = document.getElementById('esp32ApiModeBtnLabel');
+      if (lbl) lbl.textContent = mode === 'persistent' ? 'ESP32: Switch to On-Demand' : 'ESP32: Switch to Persistent';
+    }
+
+    async function toggleEsp32ApiConnection(btn) {
+      if (_esp32ApiConnection === null) return;
+      const newMode = _esp32ApiConnection === 'persistent' ? 'on-demand' : 'persistent';
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.classList.remove('success', 'error');
+      try {
+        const r = await fetch(apiBase + '/config/esphome-api-connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: newMode }),
+        });
+        btn.classList.add(r.ok ? 'success' : 'error');
+      } catch (_) {
+        btn.classList.add('error');
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+      }
+    }
+
+    async function setPollInterval(btn) {
+      const inp = document.getElementById('pollIntervalInput');
+      const val = parseFloat(inp.value);
+      if (isNaN(val) || val < 0) { inp.classList.add('error'); return; }
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.classList.remove('success', 'error');
+      try {
+        const r = await fetch(apiBase + '/config/poll-interval', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: val }),
+        });
+        btn.classList.add(r.ok ? 'success' : 'error');
+      } catch (_) {
+        btn.classList.add('error');
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+      }
+    }
+
+    async function toggleBleConnectionMode(btn) {
+      if (_bleConnection === null) return;
+      const newMode = _bleConnection === 'persistent' ? 'on-demand' : 'persistent';
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.classList.remove('success', 'error');
+      try {
+        const r = await fetch(apiBase + '/config/ble-connection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: newMode }),
+        });
+        btn.classList.add(r.ok ? 'success' : 'error');
+      } catch (_) {
+        btn.classList.add('error');
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+      }
+    }
+
+    // --- On-demand query timing display ---
+    function updateQueryTiming(data) {
+      if (data._connect_ms === undefined && data._query_ms === undefined) return;
+      const hasEsphome = data._esphome_api_ms != null;
+      if (hasEsphome) {
+        document.getElementById('queryEspApiLabel').style.display = '';
+        document.getElementById('queryEspApiMs').style.display = '';
+        document.getElementById('queryBleLabel').style.display = '';
+        document.getElementById('queryBleMs').style.display = '';
+        document.getElementById('queryConnectLabel').style.display = 'none';
+        document.getElementById('queryConnectMs').style.display = 'none';
+        set('queryEspApiMs', fmt(data._esphome_api_ms));
+        set('queryBleMs', fmt(data._ble_ms));
+      } else {
+        document.getElementById('queryEspApiLabel').style.display = 'none';
+        document.getElementById('queryEspApiMs').style.display = 'none';
+        document.getElementById('queryBleLabel').style.display = 'none';
+        document.getElementById('queryBleMs').style.display = 'none';
+        document.getElementById('queryConnectLabel').style.display = '';
+        document.getElementById('queryConnectMs').style.display = '';
+        set('queryConnectMs', fmt(data._connect_ms));
+      }
+      set('queryMs', data._query_ms === 0 ? '— (cached)' : fmt(data._query_ms));
+      document.getElementById('queryTimingRow').style.display = '';
+    }
+
+    // --- Queries (on-demand mode) ---
+    async function queryGet(url, btn, onBefore, onResult) {
+      const cleanup = onBefore ? onBefore() : null;
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.classList.remove('success', 'error');
+      try {
+        const r = await fetch(apiBase + url);
+        if (r.ok) {
+          const data = await r.json();
+          if (onResult) onResult(data);
+          updateQueryTiming(data);
+          btn.classList.add('success');
+        } else {
+          btn.classList.add('error');
+          if (cleanup) cleanup();
+        }
+      } catch (_) {
+        btn.classList.add('error');
+        if (cleanup) cleanup();
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+      }
+    }
+
+    function clearSystemParameters() {
+      ['sitting', 'anal', 'lady', 'dryer'].forEach(k => updateCard(k, null));
+      updateShowerButtons(null);
+    }
+    function onSystemParameters(data) {
+      updateCards(data);
+    }
+
+    function clearIdentification() {
+      ['info-description', 'info-serial', 'info-sap', 'info-production'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.textContent = '—';
+      });
+    }
+    function onIdentification(data) {
+      set('info-description', data.description);
+      set('info-serial',      data.serial_number);
+      set('info-sap',         data.sap_number);
+      set('info-production',  data.production_date);
+    }
+    function onBleDisInfo(state) {
+      // Fallback: show BLE DIS model/serial only when Geberit protocol hasn't provided them.
+      // Overwritten silently by onIdentification when Geberit data arrives (standard devices).
+      const dis = state.ble_dis_info;
+      if (!dis) return;
+      if (state.serial_number == null && dis.serial_number)
+        set('info-serial',      '(BLE) ' + dis.serial_number);
+      if (state.description == null && dis.model_number)
+        set('info-description', '(BLE) ' + dis.model_number);
+    }
+
+    function clearInitialOpDate() {
+      const el = document.getElementById('info-initial'); if (el) el.textContent = '—';
+    }
+    function onInitialOpDate(data) {
+      set('info-initial', data.initial_operation_date);
+    }
+
+    function onFirmwareVersions(fw) {
+      set('info-firmware', fw && fw.main ? fw.main : '—');
+    }
+
+    function onFirmwareUpdate(fu) {
+      set('info-cloud-firmware', fu.cloud_version || '—');
+      set('info-fw-update', fu.error ? '⚠ ' + fu.error
+                          : fu.update_available ? '✓ Yes'
+                          : 'No');
+    }
+
+    function onFilterStatus(fs) {
+      const fmt = ts => ts == null ? '—' : ts > 0 ? new Date(ts * 1000).toLocaleDateString() : 'Not scheduled';
+      set('info-filter-days',  fs.days_until_filter_change != null ? fs.days_until_filter_change + ' d' : '—');
+      set('info-filter-reset', fmt(fs.last_filter_reset));
+      set('info-filter-next',  fmt(fs.next_filter_change));
+      set('info-filter-count', fs.filter_reset_count != null ? fs.filter_reset_count : '—');
+    }
+
+    function onProfileSettings(ps) {
+      // ps is {id: value} — IDs match ProfileSettings enum
+      [0,1,2,3,4,5,6,7,8,9].forEach(id => {
+        if (ps[id] == null) return;
+        const val = ps[id];
+        // Stepper value display (id=6 appears in both Shower and Lady Shower — update both)
+        const sv = document.getElementById('ps-sv-' + id);
+        if (sv) sv.textContent = val;
+        const svb = document.getElementById('ps-sv-' + id + 'b');
+        if (svb) svb.textContent = val;
+        // Toggle checkbox
+        const tog = document.getElementById('ps-tog-' + id);
+        if (tog) tog.checked = val === 1;
+      });
+    }
+
+    function stepDec(btn) {
+      const st = btn.closest('.ps-stepper');
+      const valEl = st.querySelector('.ps-step-val');
+      const cur = parseInt(valEl.textContent);
+      const min = parseInt(st.dataset.min);
+      if (isNaN(cur) || cur <= min) return;
+      const newVal = cur - 1;
+      valEl.textContent = newVal;
+      const id = parseInt(st.dataset.id);
+      if (st.dataset.kind === 'profile') setProfileSetting(id, newVal, null);
+      else setCommonSetting(id, newVal, null);
+    }
+
+    function stepInc(btn) {
+      const st = btn.closest('.ps-stepper');
+      const valEl = st.querySelector('.ps-step-val');
+      const cur = parseInt(valEl.textContent);
+      const max = parseInt(st.dataset.max);
+      if (isNaN(cur) || cur >= max) return;
+      const newVal = cur + 1;
+      valEl.textContent = newVal;
+      const id = parseInt(st.dataset.id);
+      if (st.dataset.kind === 'profile') setProfileSetting(id, newVal, null);
+      else setCommonSetting(id, newVal, null);
+    }
+
+    async function setProfileSetting(settingId, val, btn) {
+      if (isNaN(val)) return;
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.classList.remove('success', 'error');
+      }
+      try {
+        const r = await fetch(apiBase + '/config/profile-setting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setting_id: settingId, value: val }),
+        });
+        if (btn) btn.classList.add(r.ok ? 'success' : 'error');
+      } catch (_) {
+        if (btn) btn.classList.add('error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+        }
+      }
+    }
+
+    function onCommonSettings(cs) {
+      // cs is {id: value} — see _COMMON_SETTING_MQTT_KEYS for full mapping
+      if (cs[0] != null) {
+        const tog = document.getElementById('cs-tog-0');
+        if (tog) tog.checked = cs[0] === 1;
+      }
+      if (cs[1] != null) {
+        const sv = document.getElementById('cs-sv-1');
+        if (sv) sv.textContent = cs[1];
+      }
+      if (cs[3] != null) {
+        const sel = document.getElementById('cs-sel-3');
+        if (sel && document.activeElement !== sel) sel.value = cs[3];
+      }
+      if (cs[2] != null) {
+        document.querySelectorAll('#cs-color-2 .cs-swatch').forEach(s => {
+          s.classList.toggle('active', parseInt(s.dataset.val) === cs[2]);
+        });
+      }
+      if (cs[4] != null) {
+        const sv = document.getElementById('cs-sv-4');
+        if (sv) sv.textContent = cs[4];
+      }
+      if (cs[6] != null) {
+        const tog = document.getElementById('cs-tog-6');
+        if (tog) tog.checked = cs[6] === 1;
+      }
+      if (cs[7] != null) {
+        const tog = document.getElementById('cs-tog-7');
+        if (tog) tog.checked = cs[7] === 1;
+      }
+    }
+
+    async function setCommonSetting(settingId, value, triggerEl) {
+      if (isNaN(value)) return;
+      // For color swatches: optimistic UI update
+      if (settingId === 2) {
+        document.querySelectorAll('#cs-color-2 .cs-swatch').forEach(s => {
+          s.classList.toggle('active', parseInt(s.dataset.val) === value);
+        });
+      }
+      // Find a nearby button to show feedback, or use triggerEl directly
+      let btn = triggerEl;
+      if (btn && btn.tagName === 'SELECT') btn = null; // selects give no btn feedback
+      if (btn && btn.tagName === 'SPAN') btn = null;   // swatches give no btn feedback
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.classList.remove('success', 'error');
+      }
+      try {
+        const r = await fetch(apiBase + '/config/common-setting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setting_id: settingId, value: value }),
+        });
+        if (btn) btn.classList.add(r.ok ? 'success' : 'error');
+      } catch (_) {
+        if (btn) btn.classList.add('error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+        }
+      }
+    }
+
+    function clearSocVersions() {
+      const el = document.getElementById('info-soc-versions'); if (el) el.textContent = '—';
+    }
+    function onSocVersions(data) {
+      const el = document.getElementById('info-soc-versions');
+      if (el) el.textContent = data.soc_versions || '—';
+      const grid = document.getElementById('socVersionsGrid');
+      if (grid) grid.style.display = '';
+    }
+
+
+
+    function clearStatisticsDescale() {
+      ['ds-days-next','ds-days-restricted','ds-cycles-confirm','ds-num-cycles','ds-last-descale','ds-unposted']
+        .forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
+    }
+    function onStatisticsDescale(data) {
+      const fmt = ts => ts ? new Date(ts * 1000).toLocaleDateString() : '—';
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      set('ds-days-next',       data.days_until_next_descale ?? '—');
+      set('ds-days-restricted', data.days_until_shower_restricted ?? '—');
+      set('ds-cycles-confirm',  data.shower_cycles_until_confirmation ?? '—');
+      set('ds-num-cycles',      data.number_of_descale_cycles ?? '—');
+      set('ds-last-descale',    fmt(data.date_time_at_last_descale));
+      set('ds-unposted',        data.unposted_shower_cycles ?? '—');
+      const grid = document.getElementById('descaleStatsGrid');
+      if (grid) grid.style.display = '';
+    }
+
+    function clearAnalShowerState() {
+      _analQueryActive = true;
+      updateCard('anal', null);
+      return () => { _analQueryActive = false; };
+    }
+    function onAnalShowerState(data) {
+      _analQueryActive = false;
+      updateCard('anal', data.is_anal_shower_running);
+    }
+
+    function clearUserSittingState() {
+      _sittingQueryActive = true;
+      updateCard('sitting', null);
+      return () => { _sittingQueryActive = false; };
+    }
+    function onUserSittingState(data) {
+      _sittingQueryActive = false;
+      updateCard('sitting', data.is_user_sitting);
+    }
+
+    function clearLadyShowerState() {
+      _ladyQueryActive = true;
+      updateCard('lady', null);
+      return () => { _ladyQueryActive = false; };
+    }
+    function onLadyShowerState(data) {
+      _ladyQueryActive = false;
+      updateCard('lady', data.is_lady_shower_running);
+    }
+
+    function clearDryerState() {
+      _dryerQueryActive = true;
+      updateCard('dryer', null);
+      return () => { _dryerQueryActive = false; };
+    }
+    function onDryerState(data) {
+      _dryerQueryActive = false;
+      updateCard('dryer', data.is_dryer_running);
+    }
+
+    // --- Connection status ---
+    function updateConnection(state) {
+      const badge  = document.getElementById('connBadge');
+      const detail = document.getElementById('connDetail');
+      const meta   = document.getElementById('connMeta');
+
+      const status = state.ble_status || 'disconnected';
+      const prevStatus = _bleStatus;
+      console.log('[updateConnection] status:', status, 'prevStatus:', prevStatus, 'state:', state);
+      badge.className = 'conn-badge ' + status;
+      badge.textContent = status;
+      updateConnBtn(status);
+
+      if (status === 'connected' && state.ble_device_name) {
+        detail.textContent = state.ble_device_name + ' (' + (state.ble_device_address || '—') + ')';
+        meta.textContent   = state.ble_connected_at ? 'Connected since ' + state.ble_connected_at : '';
+      } else if (status === 'connecting') {
+        detail.textContent = state.ble_device_address ? 'Connecting to ' + state.ble_device_address + '…' : '…';
+        meta.textContent   = '';
+      } else if (status === 'error') {
+        const errorCode = state.ble_error_code ? `[${state.ble_error_code}] ` : '';
+        detail.textContent = errorCode + (state.ble_error || '');
+        meta.textContent   = state.ble_error_hint || '';
+      } else {
+        detail.textContent = state.ble_device_address || '—';
+        meta.textContent   = '';
+      }
+
+      const hasEsphomeTiming = state.last_esphome_api_ms != null;
+      if (hasEsphomeTiming) {
+        document.getElementById('connectMsLabel').textContent = 'ESP32:';
+        set('connectMs', fmt(state.last_esphome_api_ms));
+        document.getElementById('bleMsLabel').style.display = '';
+        document.getElementById('bleMs').style.display = '';
+        set('bleMs', fmt(state.last_ble_ms));
+      } else {
+        document.getElementById('connectMsLabel').textContent = 'Connect:';
+        set('connectMs', fmt(state.last_connect_ms));
+        document.getElementById('bleMsLabel').style.display = 'none';
+        document.getElementById('bleMs').style.display = 'none';
+      }
+      set('pollMs', fmt(state.last_poll_ms));
+
+      if (status === 'connected' && prevStatus !== 'connected' && state.ble_connection !== 'on-demand') fetchDeviceInfo();
+    }
+
+    // --- ESPHome Proxy status ---
+    function updateESPHomeProxy(state) {
+      const panel  = document.getElementById('esphomeProxyPanel');
+      const badge  = document.getElementById('esphomeProxyBadge');
+      const detail = document.getElementById('esphomeProxyDetail');
+      const meta   = document.getElementById('esphomeProxyMeta');
+
+      const enabled = state.esphome_proxy_enabled || false;
+      const connected = state.esphome_proxy_connected || false;
+      const name = state.esphome_proxy_name || '';
+      const host = state.esphome_proxy_host || '';
+      const port = state.esphome_proxy_port || '';
+      const error = state.esphome_proxy_error || '';
+      const errCode = state.esphome_proxy_error_code && state.esphome_proxy_error_code !== 'E0000'
+        ? `[${state.esphome_proxy_error_code}] ` : '';
+      const errHint = state.esphome_proxy_error_hint || '';
+      const wifiRssi = state.esphome_proxy_wifi_rssi != null ? ` WiFi: ${state.esphome_proxy_wifi_rssi} dBm` : '';
+      const freeHeap = state.esphome_proxy_free_heap != null ? ` Heap: ${Math.round(state.esphome_proxy_free_heap / 1024)} KB` : '';
+      const maxBlock = state.esphome_proxy_max_free_block != null ? ` Block: ${Math.round(state.esphome_proxy_max_free_block / 1024)} KB` : '';
+
+      // Show/hide panel based on enabled status
+      if (enabled) {
+        panel.style.display = '';
+
+        if (connected && name) {
+          badge.className = 'conn-badge connected';
+          badge.textContent = 'connected';
+          detail.textContent = name + ' (' + host + ':' + port + ')';
+          const errorText = error && error !== 'No error' ? errCode + error : '';
+          meta.textContent = (errorText + (errorText && errHint ? ' — ' + errHint : '')) + wifiRssi + freeHeap + maxBlock;
+        } else {
+          badge.className = 'conn-badge disconnected';
+          badge.textContent = 'disconnected';
+          detail.textContent = host ? host + ':' + port : '—';
+          const errorText = error && error !== 'No error' ? errCode + error : '';
+          meta.textContent = errorText + (errorText && errHint ? ' — ' + errHint : errHint ? errHint : '');
+        }
+
+        _esp32Connected = connected;
+        const apiBtn = document.getElementById('esp32ApiModeBtn');
+        if (apiBtn) apiBtn.style.display = '';
+        const restartBtn = document.getElementById('esp32RestartBtn');
+        if (restartBtn) restartBtn.style.display = '';
+      } else {
+        panel.style.display = 'none';
+        const apiBtn = document.getElementById('esp32ApiModeBtn');
+        if (apiBtn) apiBtn.style.display = 'none';
+        const restartBtn = document.getElementById('esp32RestartBtn');
+        if (restartBtn) restartBtn.style.display = 'none';
+      }
+    }
+
+    // --- Device info ---
+    // In on-demand mode, identification arrives via SSE state after the first poll
+    // (onStateReceived → onIdentification / onInitialOpDate).
+    // In persistent mode, it is fetched when BLE status transitions to 'connected'
+    // (updateConnection → fetchDeviceInfo).
+    function fetchDeviceInfo() {
+      fetch(apiBase + '/info')
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(d => {
+          set('info-description', d.description);
+          set('info-serial',      d.serial_number);
+          set('info-sap',         d.sap_number);
+          set('info-production',  d.production_date);
+          set('info-initial',     d.initial_operation_date);
+        })
+        .catch(() => {});
+    }
+
+    // --- System Info panel ---
+    let _sysInfoLoaded = false;
+
+    function toggleSysInfo() {
+      const panel   = document.getElementById('sysInfoPanel');
+      const chevron = document.getElementById('sysInfoChevron');
+      const open    = panel.style.display !== 'none';
+      panel.style.display     = open ? 'none' : '';
+      chevron.style.transform = open ? '' : 'rotate(90deg)';
+      if (!open && !_sysInfoLoaded) loadSysInfo();
+    }
+
+    function loadSysInfo() {
+      fetch(apiBase + '/info/system')
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(d => {
+          _sysInfoLoaded = true;
+          const sv = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.textContent = v; };
+          sv('si-app-version', d.app_version);
+          sv('si-python',      d.python_version);
+          sv('si-os',          d.os ? d.os + ' ' + (d.os_release || '') : null);
+          sv('si-os-distro',   d.os_pretty_name ? d.os_pretty_name + (d.os_version ? '  ' + d.os_version : '') : null);
+          sv('si-machine',     d.machine);
+          sv('si-env',         d.environment);
+          sv('si-docker',      d.docker ? 'yes' : 'no');
+          if (d.config) {
+            sv('si-ble-addr',  d.config.geberit_address);
+            sv('si-esphome',   d.config.esphome_host
+              ? d.config.esphome_host + ':' + d.config.esphome_port : 'disabled');
+            sv('si-poll',      d.config.poll_interval != null ? d.config.poll_interval + ' s' : null);
+            sv('si-ble-mode',  d.config.ble_connection);
+            sv('si-log',       d.config.log_level);
+          }
+          if (d.bluetooth) {
+            const bt = d.bluetooth;
+            sv('si-bluez', bt.bluez_version || bt.note || '—');
+            const adapterStr = [bt.adapter_name, bt.adapter_address, bt.bus, bt.manufacturer]
+              .filter(Boolean).join('  ') || (bt.note || '—');
+            sv('si-bt-adapter', adapterStr);
+            const fwStr = [bt.chip, bt.firmware_file, bt.firmware_version ? 'v' + bt.firmware_version : null]
+              .filter(Boolean).join('  ') || '—';
+            sv('si-bt-fw', fwStr);
+          }
+          if (d.libraries) {
+            const L = d.libraries;
+            sv('si-lib-bleak',         L.bleak);
+            sv('si-lib-aioesphomeapi', L.aioesphomeapi);
+            sv('si-lib-fastapi',       L.fastapi);
+            sv('si-lib-uvicorn',       L.uvicorn);
+            sv('si-lib-paho',          L['paho-mqtt']);
+            sv('si-lib-aiorun',        L.aiorun);
+          }
+        })
+        .catch(() => {});
+    }
+
+    // --- Performance Stats panel ---
+    function togglePerf() {
+      const panel   = document.getElementById('perfPanel');
+      const chevron = document.getElementById('perfChevron');
+      const open    = panel.style.display !== 'none';
+      panel.style.display     = open ? 'none' : '';
+      chevron.style.transform = open ? '' : 'rotate(90deg)';
+      if (!open) loadPerf();
+    }
+
+    function loadPerf() {
+      const container = document.getElementById('perfContent');
+      fetch(apiBase + '/info/performance')
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(data => {
+          const modeLabels = { 'persistent': 'Persistent', 'on-demand': 'On-demand' };
+          const metricLabels = { 'poll_ms': 'Poll (query)', 'ble_ms': 'BLE connect', 'esphome_api_ms': 'ESP32 connect' };
+          const f = v => v != null ? v + ' ms' : '—';
+          let html = '';
+          for (const [mode, modeLabel] of Object.entries(modeLabels)) {
+            const s = data[mode];
+            const n = s ? s.sample_count : 0;
+            html += `<h3 style="font-size:0.85rem;margin:0.75rem 0 0.4rem">${modeLabel} (${n} sample${n !== 1 ? 's' : ''})</h3>`;
+            if (!s || n === 0) {
+              html += `<p style="font-size:0.8rem;color:var(--muted);margin:0">No data collected yet.</p>`;
+              continue;
+            }
+            html += '<table style="font-size:0.8rem;border-collapse:collapse;min-width:28rem">';
+            html += '<thead><tr>' +
+              '<th style="text-align:left;padding:0.2rem 0.6rem;border-bottom:1px solid var(--muted)">Metric</th>' +
+              '<th style="text-align:right;padding:0.2rem 0.6rem;border-bottom:1px solid var(--muted)">Min</th>' +
+              '<th style="text-align:right;padding:0.2rem 0.6rem;border-bottom:1px solid var(--muted)">Avg</th>' +
+              '<th style="text-align:right;padding:0.2rem 0.6rem;border-bottom:1px solid var(--muted)">Max</th>' +
+              '<th style="text-align:right;padding:0.2rem 0.6rem;border-bottom:1px solid var(--muted)">Samples</th>' +
+              '</tr></thead><tbody>';
+            for (const [key, label] of Object.entries(metricLabels)) {
+              const m = s[key];
+              if (!m) continue;
+              html += `<tr>` +
+                `<td style="padding:0.2rem 0.6rem">${label}</td>` +
+                `<td style="text-align:right;padding:0.2rem 0.6rem">${f(m.min_ms)}</td>` +
+                `<td style="text-align:right;padding:0.2rem 0.6rem">${f(m.avg_ms)}</td>` +
+                `<td style="text-align:right;padding:0.2rem 0.6rem">${f(m.max_ms)}</td>` +
+                `<td style="text-align:right;padding:0.2rem 0.6rem">${m.count}</td>` +
+                `</tr>`;
+            }
+            html += '</tbody></table>';
+          }
+          container.innerHTML = html;
+        })
+        .catch(() => { document.getElementById('perfContent').textContent = 'Failed to load performance stats.'; });
+    }
+
+    function set(id, val) {
+      const el = document.getElementById(id);
+      if (el && val !== undefined && val !== null) el.textContent = val;
+    }
+
+    function fmt(ms) { return ms != null ? ms + ' ms' : '—'; }
+
+    // --- Buttons ---
+    async function sendPost(url, btn) {
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.classList.remove('success', 'error');
+      try {
+        const r = await fetch(apiBase + url, { method: 'POST' });
+        if (r.ok) {
+          try {
+            const data = await r.json();
+            updateQueryTiming(data);
+          } catch (_) {}
+          btn.classList.add('success');
+        } else {
+          btn.classList.add('error');
+        }
+      } catch (_) {
+        btn.classList.add('error');
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+      }
+    }
+
+    // ── Alba misc sections ────────────────────────────────────────────────
+
+    function toggleAlbaMiscQueries() {
+      const panel   = document.getElementById('albaMiscQueriesPanel');
+      const chevron = document.getElementById('albaMiscQueriesChevron');
+      const open    = panel.style.display !== 'none';
+      panel.style.display     = open ? 'none' : '';
+      chevron.style.transform = open ? '' : 'rotate(90deg)';
+    }
+
+    function toggleAlbaMiscCommands() {
+      const panel   = document.getElementById('albaMiscCommandsPanel');
+      const chevron = document.getElementById('albaMiscCommandsChevron');
+      const open    = panel.style.display !== 'none';
+      panel.style.display     = open ? 'none' : '';
+      chevron.style.transform = open ? '' : 'rotate(90deg)';
+    }
+
+    function clearAlbaMiscState() {
+      document.querySelectorAll('#albaMiscGrid span[id^="am-"]').forEach(el => el.textContent = '—');
+      document.getElementById('albaMiscGrid').style.display = 'none';
+    }
+
+    function fmtBool(v) { return v === null || v === undefined ? '—' : (v ? 'Yes' : 'No'); }
+    function fmtSeconds(s) {
+      if (s == null) return '—';
+      const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+      return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+    }
+
+    function onAlbaMiscState(d) {
+      const s = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v == null ? '—' : v); };
+      s('am-intensity',     d.active_intensity   != null ? d.active_intensity   : '—');
+      s('am-position',      d.active_position    != null ? d.active_position    : '—');
+      s('am-temperature',   d.active_temperature != null ? d.active_temperature : '—');
+      s('am-oscillation',   fmtBool(d.active_oscillation));
+      s('am-spray-arm-cleaning', d.spray_arm_cleaning_status || '—');
+      s('am-desc-status',   d.descaling_status   || '—');
+      s('am-desc-days',     d.days_until_next_descaling != null ? d.days_until_next_descaling + ' d' : '—');
+      s('am-desc-cycles',   d.descaling_cycles   != null ? d.descaling_cycles   : '—');
+      s('am-desc-credits',  d.credits_until_next_descaling != null ? d.credits_until_next_descaling : '—');
+      s('am-desc-lock-days',   d.descaling_device_lock_remaining_days != null ? d.descaling_device_lock_remaining_days + ' d' : '—');
+      s('am-desc-relock-cycles', d.descaling_device_relock_remaining_cycles != null ? d.descaling_device_relock_remaining_cycles : '—');
+      s('am-desc-lock-status', d.descaling_device_lock_status || '—');
+      s('am-desc-unaccounted', d.unaccounted_shower_cycles != null ? d.unaccounted_shower_cycles : '—');
+      s('am-desc-ts-last',  d.timestamp_last_descaling         || '—');
+      s('am-desc-ts-req',   d.timestamp_last_descaling_request || '—');
+      s('am-user-detect',   fmtBool(d.user_detection_status));
+      s('am-rtc-time',      d.rtc_time || '—');
+      s('am-op-total',      fmtSeconds(d.operation_time_total_s));
+      s('am-op-boot',       fmtSeconds(d.operation_time_since_power_up_s));
+      s('am-err-psu',       fmtBool(d.error_power_supply));
+      s('am-err-heater',    fmtBool(d.error_water_heater));
+      s('am-err-level',     fmtBool(d.error_level_control));
+      s('am-err-user-det',  fmtBool(d.error_user_detection));
+      s('am-err-pump',      fmtBool(d.error_water_pump));
+      s('am-err-spray-arm', fmtBool(d.error_spray_arm_drive));
+      s('am-err-maintenance', fmtBool(d.error_maintenance_request));
+      s('am-err-descaling', fmtBool(d.error_descaling));
+      s('am-demo-mode',     fmtBool(d.demo_mode));
+      s('am-showroom-mode', fmtBool(d.showroom_mode));
+      s('am-dry-run-mode',  fmtBool(d.dry_run_mode));
+      s('am-reg-level',     d.product_registration_level || '—');
+      document.getElementById('albaMiscGrid').style.display = '';
+    }
+
+    async function albaCmd(command, value, btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.classList.remove('success', 'error');
+      }
+      try {
+        const r = await fetch(apiBase + '/alba/command/' + command, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value }),
+        });
+        if (btn) btn.classList.add(r.ok ? 'success' : 'error');
+      } catch (_) {
+        if (btn) btn.classList.add('error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+        }
+      }
+    }
+
+    async function albaCmdNoVal(command, btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.classList.remove('success', 'error');
+      }
+      try {
+        const r = await fetch(apiBase + '/alba/command/' + command, { method: 'POST' });
+        if (btn) btn.classList.add(r.ok ? 'success' : 'error');
+      } catch (_) {
+        if (btn) btn.classList.add('error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.classList.remove('loading');
+          setTimeout(() => btn.classList.remove('success', 'error'), 2000);
+        }
+      }
+    }
+
+    function albaStepDec(btn) {
+      const st = btn.closest('.ps-stepper');
+      const valEl = st.querySelector('.ps-step-val');
+      const cur = parseInt(valEl.textContent);
+      const min = parseInt(st.dataset.min);
+      if (isNaN(cur) || cur <= min) return;
+      const newVal = cur - 1;
+      valEl.textContent = newVal;
+      albaCmd(st.dataset.albaCmd, newVal, null);
+    }
+
+    function albaStepInc(btn) {
+      const st = btn.closest('.ps-stepper');
+      const valEl = st.querySelector('.ps-step-val');
+      const cur = parseInt(valEl.textContent);
+      const max = parseInt(st.dataset.max);
+      if (isNaN(cur) || cur >= max) return;
+      const newVal = cur + 1;
+      valEl.textContent = newVal;
+      albaCmd(st.dataset.albaCmd, newVal, null);
+    }
+  </script>
+</body>
+</html>

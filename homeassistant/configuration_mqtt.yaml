@@ -1,0 +1,221 @@
+# Add this section to your configuration.yaml
+# This configures all MQTT entities for the Geberit AquaClean integration
+
+mqtt:
+  sensor:
+    # Monitor sensors (string values from MQTT)
+    - name: "Geberit AquaClean User Sitting"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isUserSitting"
+      icon: mdi:seat
+      
+    - name: "Geberit AquaClean Anal Shower Running"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isAnalShowerRunning"
+      icon: mdi:shower
+      
+    - name: "Geberit AquaClean Lady Shower Running"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isLadyShowerRunning"
+      icon: mdi:shower
+      
+    - name: "Geberit AquaClean Dryer Running"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isDryerRunning"
+      icon: mdi:air-filter
+      
+    # Device information
+    - name: "Geberit AquaClean SAP Number"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/Identification/SapNumber"
+      icon: mdi:identifier
+      
+    - name: "Geberit AquaClean Production Date"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/Identification/ProductionDate"
+      icon: mdi:calendar
+      
+    - name: "Geberit AquaClean Serial Number"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/Identification/SerialNumber"
+      icon: mdi:barcode
+      
+    - name: "Geberit AquaClean Description"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/Identification/Description"
+      icon: mdi:information
+      
+    - name: "Geberit AquaClean Initial Operation Date"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/initialOperationDate"
+      icon: mdi:calendar-clock
+
+    - name: "Geberit AquaClean Firmware Version"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/firmwareVersion"
+      icon: mdi:chip
+
+    # Filter status
+    - name: "Geberit AquaClean Filter Days Remaining"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/filterStatus/daysUntilFilterChange"
+      icon: mdi:filter-cog
+      unit_of_measurement: "days"
+
+    - name: "Geberit AquaClean Last Filter Reset"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/filterStatus/lastFilterReset"
+      icon: mdi:filter-check
+      value_template: >-
+        {% if value | int(0) > 0 %}
+          {{ value | int | timestamp_custom('%d.%m.%Y') }}
+        {% else %}
+          Never
+        {% endif %}
+
+    - name: "Geberit AquaClean Filter Reset Count"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/filterStatus/filterResetCount"
+      icon: mdi:counter
+
+    - name: "Geberit AquaClean Next Filter Change"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/filterStatus/nextFilterChange"
+      icon: mdi:filter-plus
+      value_template: >-
+        {% if value | int(0) > 0 %}
+          {{ value | int | timestamp_custom('%d.%m.%Y') }}
+        {% else %}
+          Unknown
+        {% endif %}
+
+    # Descale statistics
+    - name: "Geberit AquaClean Days Until Next Descale"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/descaleStatistics/daysUntilNextDescale"
+      icon: mdi:calendar-refresh
+      unit_of_measurement: "days"
+
+    - name: "Geberit AquaClean Days Until Shower Restricted"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/descaleStatistics/daysUntilShowerRestricted"
+      icon: mdi:calendar-alert
+      unit_of_measurement: "days"
+
+    - name: "Geberit AquaClean Shower Cycles Until Confirmation"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/descaleStatistics/showerCyclesUntilConfirmation"
+      icon: mdi:counter
+
+    - name: "Geberit AquaClean Number Of Descale Cycles"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/descaleStatistics/numberOfDescaleCycles"
+      icon: mdi:history
+
+    - name: "Geberit AquaClean Last Descale"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/descaleStatistics/dateTimeAtLastDescale"
+      icon: mdi:calendar-check
+      value_template: >-
+        {% if value | int(0) > 0 %}
+          {{ value | int | timestamp_custom('%d.%m.%Y') }}
+        {% else %}
+          Never
+        {% endif %}
+
+    - name: "Geberit AquaClean Unposted Shower Cycles"
+      state_topic: "Geberit/AquaClean/peripheralDevice/information/descaleStatistics/unpostedShowerCycles"
+      icon: mdi:sync
+
+    - name: "Geberit AquaClean Cloud Firmware Version"
+      state_topic: "Geberit/AquaClean/centralDevice/firmwareUpdate"
+      value_template: "{{ value_json.cloud_version }}"
+      icon: mdi:cloud-check
+      entity_category: diagnostic
+
+    - name: "Geberit AquaClean Connected"
+      state_topic: "Geberit/AquaClean/centralDevice/connected"
+      icon: mdi:bluetooth-connect
+      
+    - name: "Geberit AquaClean Error"
+      state_topic: "Geberit/AquaClean/centralDevice/error"
+      icon: mdi:alert-circle
+
+    - name: "Geberit AquaClean System Info"
+      state_topic: "Geberit/AquaClean/centralDevice/systemInfo"
+      value_template: "{{ value_json.app_version }}"
+      json_attributes_topic: "Geberit/AquaClean/centralDevice/systemInfo"
+      icon: mdi:information-variant
+      entity_category: diagnostic
+
+    - name: "Geberit AquaClean Performance Stats"
+      state_topic: "Geberit/AquaClean/centralDevice/performanceStats"
+      value_template: "{{ value_json['persistent']['sample_count'] + value_json['on-demand']['sample_count'] }}"
+      json_attributes_topic: "Geberit/AquaClean/centralDevice/performanceStats"
+      icon: mdi:chart-bar
+      unit_of_measurement: "samples"
+      entity_category: diagnostic
+
+    - name: "Geberit AquaClean BLE Signal"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/bleRssi"
+      icon: mdi:signal
+      unit_of_measurement: "dBm"
+      device_class: signal_strength
+      entity_category: diagnostic
+
+    # ESPHome proxy sensors (requires ESP32 proxy)
+    - name: "AquaClean Proxy WiFi Signal"
+      state_topic: "Geberit/AquaClean/esphomeProxy/wifiRssi"
+      icon: mdi:wifi
+      unit_of_measurement: "dBm"
+      device_class: signal_strength
+      entity_category: diagnostic
+
+    - name: "AquaClean Proxy Free Heap"
+      state_topic: "Geberit/AquaClean/esphomeProxy/freeHeap"
+      icon: mdi:memory
+      unit_of_measurement: "B"
+      entity_category: diagnostic
+
+    - name: "AquaClean Proxy Max Free Block"
+      state_topic: "Geberit/AquaClean/esphomeProxy/maxFreeBlock"
+      icon: mdi:memory
+      unit_of_measurement: "B"
+      entity_category: diagnostic
+
+  button:
+    # Reset ceramic honeycomb filter counter
+    - name: "Geberit AquaClean Reset Filter Counter"
+      command_topic: "Geberit/AquaClean/peripheralDevice/control/resetFilterCounter"
+      payload_press: "true"
+      icon: mdi:air-purifier
+
+  switch:
+    # Control switch for lid position
+    - name: "Geberit AquaClean Toggle Lid"
+      command_topic: "Geberit/AquaClean/peripheralDevice/control/toggleLidPosition"
+      payload_on: "true"
+      payload_off: "false"
+      icon: mdi:toilet
+      optimistic: true
+      retain: false
+
+  binary_sensor:
+    - name: "Geberit AquaClean Firmware Update Available"
+      state_topic: "Geberit/AquaClean/centralDevice/firmwareUpdate"
+      value_template: "{{ value_json.update_available }}"
+      payload_on: "True"
+      payload_off: "False"
+      device_class: update
+      icon: mdi:chip-arrow-up
+      entity_category: diagnostic
+
+    # Binary sensors for monitor states (on/off display)
+    # Note: payload_on and payload_off use "True"/"False" (capitalized)
+    # to match the MQTT messages from the Geberit device.
+    # Adjust to "true"/"false" (lowercase) if your device differs.
+
+    - name: "Geberit AquaClean User Sitting"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isUserSitting"
+      payload_on: "True"
+      payload_off: "False"
+      icon: mdi:seat
+      
+    - name: "Geberit AquaClean Anal Shower Running"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isAnalShowerRunning"
+      payload_on: "True"
+      payload_off: "False"
+      icon: mdi:shower
+      
+    - name: "Geberit AquaClean Lady Shower Running"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isLadyShowerRunning"
+      payload_on: "True"
+      payload_off: "False"
+      icon: mdi:shower
+      
+    - name: "Geberit AquaClean Dryer Running"
+      state_topic: "Geberit/AquaClean/peripheralDevice/monitor/isDryerRunning"
+      payload_on: "True"
+      payload_off: "False"
+      icon: mdi:air-filter

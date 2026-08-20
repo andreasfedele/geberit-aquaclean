@@ -1,0 +1,145 @@
+# MQTT Reference
+
+MQTT is used in **service mode** and **api mode** (when `mqtt_enabled = true` in `config.ini`).
+
+All topics are prefixed with the value of `[MQTT] topic` in `config.ini` (default: `Geberit/AquaClean`).  In the tables below the prefix is written as `{prefix}`.
+
+---
+
+## Published topics (outgoing)
+
+The application publishes to these topics.  All messages are published with `retain=True`.
+
+### Connection status
+
+| Topic | Values | Description |
+|-------|--------|-------------|
+| `{prefix}/centralDevice/connected` | `Connecting to <addr> ...` → `True` → `False` | BLE connection lifecycle |
+| `{prefix}/centralDevice/error` | JSON (see below) | Last BLE error; cleared to `{"code":"E0000","message":"No error",...}` on each new connect attempt |
+| `{prefix}/centralDevice/timings` | JSON | Connect timing breakdown: `{"connect_ms":N,"esphome_api_ms":N,"ble_ms":N}` |
+| `{prefix}/centralDevice/systemInfo` | JSON | App version, OS, libraries, BLE adapter details — published once on startup |
+| `{prefix}/centralDevice/performanceStats` | JSON | Per-mode timing statistics — published after every poll |
+
+### Poll timing
+
+Published immediately before each poll cycle so clients can compute a countdown.
+
+| Topic | Values | Description |
+|-------|--------|-------------|
+| `{prefix}/centralDevice/pollEpoch` | ISO 8601 timestamp | When the current poll cycle started (UTC) |
+| `{prefix}/centralDevice/pollInterval` | float (seconds) | Current poll interval; `0` = polling disabled |
+
+**Error JSON format:**
+```json
+{
+  "code": "E7002",
+  "message": "No response from BLE peripheral ...",
+  "hint": "Usually a restart of the BLE peripheral is required.",
+  "timestamp": "2026-02-21T10:26:15.158749Z"
+}
+```
+
+### ESP32 proxy status (when `[ESPHOME] host` is configured)
+
+| Topic | Values | Description |
+|-------|--------|-------------|
+| `{prefix}/esphomeProxy/enabled` | `true` / `false` | Whether the ESPHome proxy is configured |
+| `{prefix}/esphomeProxy/connected` | `True` / `False` | Whether the TCP connection to the ESP32 is alive |
+| `{prefix}/esphomeProxy/error` | JSON (same format as above) | Last ESP32 API error |
+
+### Device state (monitor)
+
+Published every poll cycle and after each relevant command.
+
+| Topic | Values | Description |
+|-------|--------|-------------|
+| `{prefix}/peripheralDevice/monitor/isUserSitting` | `True` / `False` | Seat occupancy sensor |
+| `{prefix}/peripheralDevice/monitor/isAnalShowerRunning` | `True` / `False` | Anal shower active |
+| `{prefix}/peripheralDevice/monitor/isLadyShowerRunning` | `True` / `False` | Lady shower active |
+| `{prefix}/peripheralDevice/monitor/isDryerRunning` | `True` / `False` | Dryer active |
+
+### Device information
+
+Published on connect (when identification data is fetched).
+
+| Topic | Example value | Description |
+|-------|---------------|-------------|
+| `{prefix}/peripheralDevice/information/Identification/SapNumber` | `966.848.00.0` | SAP article number |
+| `{prefix}/peripheralDevice/information/Identification/SerialNumber` | `HB23XXEUXXXXXX` | Serial number |
+| `{prefix}/peripheralDevice/information/Identification/ProductionDate` | `11.04.2023` | Production date |
+| `{prefix}/peripheralDevice/information/Identification/Description` | `AquaClean Mera Comfort` | Model name |
+| `{prefix}/peripheralDevice/information/initialOperationDate` | `31.05.2024` | Date first put into service |
+| `{prefix}/peripheralDevice/information/SocVersions` | version string | SOC firmware version |
+
+### Descale statistics
+
+Published when descale statistics are fetched (on connect in persistent mode, or on demand via `/data/statistics-descale`).
+
+| Topic | Example value | Description |
+|-------|---------------|-------------|
+| `{prefix}/peripheralDevice/information/descaleStatistics/daysUntilNextDescale` | `61` | Days until next scheduled descale |
+| `{prefix}/peripheralDevice/information/descaleStatistics/daysUntilShowerRestricted` | `14` | Days until shower function is restricted |
+| `{prefix}/peripheralDevice/information/descaleStatistics/showerCyclesUntilConfirmation` | `1` | Shower cycles remaining before confirmation required |
+| `{prefix}/peripheralDevice/information/descaleStatistics/numberOfDescaleCycles` | `2` | Total number of completed descale cycles |
+| `{prefix}/peripheralDevice/information/descaleStatistics/dateTimeAtLastDescale` | `1745932224` | Unix timestamp of last descale (0 = never) |
+| `{prefix}/peripheralDevice/information/descaleStatistics/unpostedShowerCycles` | `1` | Shower cycles not yet synced to the device counter |
+
+---
+
+## Subscribed topics (incoming)
+
+The application subscribes to these topics and reacts to incoming messages.
+
+### Commands
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `{prefix}/peripheralDevice/control/toggleLidPosition` | any | Toggle lid open/closed |
+| `{prefix}/peripheralDevice/control/toggleAnal` | any | Toggle anal shower on/off |
+
+### Connection control
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `{prefix}/centralDevice/control/connect` | any | Request BLE connect |
+| `{prefix}/centralDevice/control/disconnect` | any | Request BLE disconnect (persistent mode) |
+
+### ESP32 proxy control (when `[ESPHOME] host` is configured)
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `{prefix}/esphomeProxy/control/connect` | any | Connect/reconnect the ESP32 API TCP connection |
+| `{prefix}/esphomeProxy/control/disconnect` | any | Disconnect the ESP32 API TCP connection |
+| `{prefix}/esphomeProxy/control/restart` | any | Reboot the ESP32 (requires `button: platform: restart` in ESPHome YAML) |
+
+### Runtime configuration
+
+| Topic | Payload | Effect |
+|-------|---------|--------|
+| `{prefix}/centralDevice/config/bleConnection` | `persistent` or `on-demand` | Switch BLE connection mode without restart |
+| `{prefix}/centralDevice/config/pollInterval` | float (seconds) | Set poll interval; `0` disables background polling |
+| `{prefix}/esphomeProxy/config/apiConnection` | `persistent` or `on-demand` | Switch ESP32 API TCP connection mode without restart |
+
+---
+
+## Example: monitor with MQTT Explorer
+
+Subscribe to `Geberit/AquaClean/#` to see all published values in real time.
+
+## Example: trigger lid toggle
+
+```bash
+mosquitto_pub -h YOUR_BROKER -t "Geberit/AquaClean/peripheralDevice/control/toggleLidPosition" -m "1"
+```
+
+## Example: switch to on-demand mode
+
+```bash
+mosquitto_pub -h YOUR_BROKER -t "Geberit/AquaClean/centralDevice/config/bleConnection" -m "on-demand"
+```
+
+## Example: set poll interval to 30 seconds
+
+```bash
+mosquitto_pub -h YOUR_BROKER -t "Geberit/AquaClean/centralDevice/config/pollInterval" -m "30"
+```

@@ -1,0 +1,686 @@
+#!/usr/bin/env python3
+"""
+alba-ble20-probe.py — Geberit AquaClean Alba (Ble20) Application-Layer Probe
+=============================================================================
+
+Connects to an Alba device, completes the Arendi Security BLE handshake, then
+runs DataPointInventory to discover every DpId the device supports.  Optionally
+reads or writes specific data points by numeric DpId.
+
+Does NOT require a running bridge.  Reads device address and ESP32 config from
+config.ini when not supplied on the command line.
+
+Usage
+-----
+  # Inventory only (prints all DpIds with type, range, behavior):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08
+
+  # Read DpId 1008 (LID_LIFTER_POSITION):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --read 1008
+
+  # Trigger lid (DpId 1009 = TRIGGER_LID_LIFTING, value 1):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --toggle-lid
+
+  # Write arbitrary DpId with explicit value (4-byte LE uint32):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --write 1009 1
+
+  # Via ESPHome proxy (kstr device):
+  python tools/alba-ble20-probe.py \\
+      --esphome-host 192.168.0.50 --device E4:85:01:CD:6B:04
+
+  # Watch userIsSitting (DpId 60) — prints on every change:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:6B:04 --watch 60
+
+  # Watch lid angle (DpId 1008) at 0.5s interval:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:6B:04 --watch 1008 --interval 0.5
+
+  # Enable bridge-level DEBUG logging:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --debug
+"""
+
+import argparse
+import asyncio
+import configparser
+import hashlib
+import logging
+import os
+import pathlib
+import struct
+import sys
+from datetime import datetime
+from typing import Optional
+
+# Script fingerprint — printed at startup so the running version is always visible.
+_SCRIPT_HASH = hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()[:16]
+try:
+    from importlib.metadata import version as _pkg_ver
+    _BRIDGE_VERSION = _pkg_ver("geberit-aquaclean")
+except Exception:
+    _BRIDGE_VERSION = "unknown"
+
+# ---------------------------------------------------------------------------
+# Project root on path (works when installed via pip and when run from repo)
+# ---------------------------------------------------------------------------
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+
+# ---------------------------------------------------------------------------
+# Register TRACE/SILLY log levels used by bridge modules.
+# Must happen before any bridge import.
+# ---------------------------------------------------------------------------
+def _add_level(name: str, value: int):
+    logging.addLevelName(value, name)
+    setattr(logging, name, value)
+    setattr(logging.Logger, name.lower(),
+            lambda self, msg, *a, **kw: self.log(value, msg, *a, **kw))
+
+_add_level('SILLY', 4)
+_add_level('TRACE', 5)
+
+_FMT = '%(asctime)s %(name)s %(lineno)d %(levelname)s: %(message)s'
+logging.basicConfig(level=logging.WARNING, format=_FMT)
+log = logging.getLogger('alba-probe')
+
+# ---------------------------------------------------------------------------
+# Bridge imports
+# ---------------------------------------------------------------------------
+from bleak import BleakScanner
+from aquaclean_console_app.bluetooth_le.LE.BluetoothLeConnector import BluetoothLeConnector
+from aquaclean_console_app.bluetooth_le.LE.dp_ids import dp_name
+from aquaclean_console_app.bluetooth_le.LE.dp_type import DpType
+from aquaclean_console_app.bluetooth_le.LE.dp_behavior import DpBehavior
+from aquaclean_console_app.bluetooth_le.LE.Ble20Client import (
+    Ble20Client, Ble20DeviceIdentification, encode_address, decode_address,
+)
+
+
+def _dp_type_name(dt: int) -> str:
+    try:
+        return DpType(dt).name
+    except ValueError:
+        return f"0x{dt:02X}"
+
+
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
+def _format_value(raw: bytes, datatype: int) -> str:
+    if not raw:
+        return "(empty)"
+    if datatype == DpType.Signed:
+        if len(raw) >= 4:
+            return str(struct.unpack_from('<i', raw)[0])
+    elif datatype == DpType.OffOn:
+        return "On" if raw[0] else "Off"
+    elif datatype == DpType.OffOnAuto:
+        return {0: "Off", 1: "On", 2: "Auto"}.get(raw[0], str(raw[0]))
+    elif datatype == DpType.String:
+        return raw.rstrip(b'\x00').decode('ascii', errors='replace')
+    # Generic: show as uint32 / hex
+    if len(raw) >= 4:
+        u = struct.unpack_from('<I', raw)[0]
+        s = struct.unpack_from('<i', raw)[0]
+        return f"{u}  (signed: {s})  [0x{u:08X}]"
+    if len(raw) == 2:
+        return f"{struct.unpack_from('<H', raw)[0]}  [hex: {raw.hex()}]"
+    if len(raw) == 1:
+        return f"{raw[0]}  [0x{raw[0]:02X}]"
+    return f"[{raw.hex()}]"
+
+
+def _print_inventory(inv: dict[int, dict]):
+    external = sorted((k, v) for k, v in inv.items() if not v['is_internal'])
+    internal = sorted((k, v) for k, v in inv.items() if v['is_internal'])
+
+    for section, section_entries in [("External", external), ("Internal", internal)]:
+        if not section_entries:
+            continue
+        print(f"\n── {section} DpIds ({len(section_entries)}) " + "─" * 60)
+        print(f"{'DpId':>6}  {'Inst':>4}  {'Type':<13}  {'Behavior':<14}  "
+              f"{'Min':>10}  {'Max':>10}  {'Ver':>3}  Name")
+        print("─" * 100)
+        for dp_id, e in sorted(section_entries, key=lambda x: (x[1]['instance'] or 0, x[0])):
+            inst  = f"{e['instance']}" if e['instance'] is not None else ""
+            tp    = _dp_type_name(e['datatype'])
+            try:
+                beh = DpBehavior(e['behavior']).name
+            except ValueError:
+                beh = f"{e['behavior']}"
+            min_v = e['min_s'] if e['datatype'] == DpType.Signed else e['min_u']
+            max_v = e['max_s'] if e['datatype'] == DpType.Signed else e['max_u']
+            name  = dp_name(dp_id)
+            print(f"{dp_id:>6}  {inst:>4}  {tp:<13}  {beh:<14}  "
+                  f"{min_v:>10}  {max_v:>10}  {e['version']:>3}  {name}")
+
+
+# ---------------------------------------------------------------------------
+# Identification display
+# ---------------------------------------------------------------------------
+
+def _print_identification(di: Ble20DeviceIdentification) -> None:
+    print("\n── Device Identification " + "─" * 55)
+
+    def _row(label: str, value) -> None:
+        if value is not None:
+            print(f"  {label:<22}: {value}")
+
+    _row("Name",               di.name)
+    _row("Device Series",      di.device_series)
+    _row("Device Variant",     di.device_variant)
+    _row("Device Model",       di.device_model)
+    _row("Device Number",      di.device_number)
+    _row("Device SAP Number",  di.device_sap_number)
+    _row("Unique Device ID",   f"0x{di.device_unique_id:08X}" if di.device_unique_id is not None else None)
+    _row("FW RS Version",      di.fw_rs_version)
+    _row("FW TS Version",      di.fw_ts_version)
+    _row("Boot Variant",       di.device_boot_variant)
+
+    assembled = None
+    if di.fw_rs_version is not None and di.fw_ts_version is not None:
+        assembled = f"RS{di.fw_rs_version}TS{di.fw_ts_version:02d}"
+    elif di.fw_rs_version is not None:
+        assembled = f"RS{di.fw_rs_version}"
+    if assembled:
+        _row("Firmware (assembled)", assembled)
+
+
+# ---------------------------------------------------------------------------
+# Instanced DpId reading + display (progress, versions, statistics)
+# ---------------------------------------------------------------------------
+_INSTANCED_PROGRESS = [
+    (565, "DP_ANAL_SHOWER_PROGRESS"),
+    (568, "DP_SPRAY_ARM_CLEANING_PROGRESS"),
+    (586, "DP_DESCALING_PROGRESS"),
+]
+_PROGRESS_INST_LABELS = {0: "MaxTotal", 1: "ElapsedTotal", 2: "MaxStep", 3: "ElapsedStep"}
+
+_INSTANCED_VERSIONS = [
+    (785, "DP_FUS_VERSION",            3, "Field Update Service"),
+    (786, "DP_GEBERIT_LOADER_VERSION", 2, "Geberit Loader"),
+    (787, "DP_WIRELESS_STACK_VERSION", 3, "Wireless Stack"),
+]
+_VERSION_INST_LABELS = {0: "Major", 1: "Minor", 2: "Bugfix"}
+
+_STAT_INSTANCES: dict[int, str] = {
+    2:  "UseWithFlush",
+    31: "AquacleanUsages",
+    32: "AquacleanAnalShowers",
+    33: "AquacleanLadyShowers",
+    34: "AquacleanDryings",
+    35: "AquacleanDescalings",
+    36: "AquacleanSprayArmCleanings",
+}
+_INSTANCED_STATS = [
+    (405, "DP_STATISTIC_COUNTER_SINCE_POWER_UP"),
+    (688, "DP_STATISTIC_COUNTER_SINCE_RESET"),
+    (689, "DP_STATISTIC_COUNTER_TOTAL"),
+]
+
+
+async def _read_instanced_dpids(session: "Ble20Client") -> dict:
+    """Read all DpIds that require an instance parameter."""
+
+    async def _u32i(dp_id_val: int, instance: int) -> Optional[int]:
+        try:
+            raw = await session.read(dp_id_val, instance)
+            if not raw:
+                return None
+            return struct.unpack_from('<I', raw)[0] if len(raw) >= 4 else raw[0]
+        except Exception:
+            return None
+
+    result: dict = {}
+
+    for dp_id_val, name in _INSTANCED_PROGRESS:
+        instances = {i: await _u32i(dp_id_val, i) for i in range(4)}
+        max_t = instances.get(0)
+        ela   = instances.get(1)
+        pct   = round(ela / max_t * 100, 1) if max_t else None
+        result[name] = {"dp_id": dp_id_val, "instances": instances, "pct": pct}
+
+    for dp_id_val, name, n_inst, _ in _INSTANCED_VERSIONS:
+        instances = {i: await _u32i(dp_id_val, i) for i in range(n_inst)}
+        parts = [instances.get(i) for i in range(n_inst)]
+        assembled = ".".join(str(p or 0) for p in parts) if any(p is not None for p in parts) else None
+        result[name] = {"dp_id": dp_id_val, "instances": instances, "assembled": assembled}
+
+    for dp_id_val, name in _INSTANCED_STATS:
+        result[name] = {
+            "dp_id": dp_id_val,
+            "instances": {inst: await _u32i(dp_id_val, inst) for inst in _STAT_INSTANCES},
+        }
+
+    return result
+
+
+def _print_instanced_dpids(data: dict) -> None:
+    print("\n── Instanced DpIds " + "─" * 60)
+
+    # Progress
+    print("\n  Progress indicators:")
+    print(f"  {'DpId':>6}  {'Name':<36}  inst  {'Label':<14}  Value")
+    print("  " + "─" * 75)
+    for dp_id_val, name in _INSTANCED_PROGRESS:
+        entry = data.get(name, {})
+        instances = entry.get("instances", {})
+        pct = entry.get("pct")
+        for i in range(4):
+            val = instances.get(i)
+            label = _PROGRESS_INST_LABELS.get(i, "")
+            val_s = str(val) if val is not None else "—"
+            id_col  = f"{dp_id_val:>6}" if i == 0 else f"{'':>6}"
+            name_col = name if i == 0 else ""
+            print(f"  {id_col}  {name_col:<36}  {i:>4}  {label:<14}  {val_s}")
+        pct_s = f"{pct:.1f}%" if pct is not None else "—"
+        print(f"  {'':>6}  {'':36}  {'→':>4}  {'progress':<14}  {pct_s}")
+        print()
+
+    # Versions
+    print("  Version strings:")
+    print(f"  {'DpId':>6}  {'Name':<28}  {'Label':<10}  {'Description':<22}  Assembled")
+    print("  " + "─" * 75)
+    for dp_id_val, name, n_inst, desc in _INSTANCED_VERSIONS:
+        entry = data.get(name, {})
+        instances = entry.get("instances", {})
+        assembled = entry.get("assembled", "—")
+        for i in range(n_inst):
+            val = instances.get(i)
+            label = _VERSION_INST_LABELS.get(i, "")
+            val_s = str(val) if val is not None else "—"
+            id_col   = f"{dp_id_val:>6}" if i == 0 else f"{'':>6}"
+            name_col = name if i == 0 else ""
+            asm_col  = assembled if i == 0 else ""
+            print(f"  {id_col}  {name_col:<28}  inst {i}={val_s:<5}  {label:<22}  {asm_col}")
+        print()
+
+    # Statistics — single comparison table
+    print("  Statistics counters:")
+    pu  = data.get("DP_STATISTIC_COUNTER_SINCE_POWER_UP", {}).get("instances", {})
+    rs  = data.get("DP_STATISTIC_COUNTER_SINCE_RESET",    {}).get("instances", {})
+    tot = data.get("DP_STATISTIC_COUNTER_TOTAL",          {}).get("instances", {})
+    print(f"\n    {'Counter (instance)':<36}  {'PowerUp':>9}  {'SinceReset':>11}  {'Total':>8}")
+    print("    " + "─" * 70)
+    for inst, label in _STAT_INSTANCES.items():
+        row_label = f"{label} ({inst})"
+        pu_v  = str(pu.get(inst,  "—"))
+        rs_v  = str(rs.get(inst,  "—"))
+        tot_v = str(tot.get(inst, "—"))
+        print(f"    {row_label:<36}  {pu_v:>9}  {rs_v:>11}  {tot_v:>8}")
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+def _load_config(config_path: Optional[str] = None):
+    cfg = configparser.ConfigParser(inline_comment_prefixes=('#',))
+    path = config_path or os.path.join(_repo_root, 'config.ini')
+    cfg.read(path)
+    host = cfg.get('ESPHOME', 'host', fallback='').strip() or None
+    port = int(cfg.get('ESPHOME', 'port', fallback='6053').strip() or 6053)
+    psk  = cfg.get('ESPHOME', 'noise_psk', fallback='').strip() or None
+    dev  = cfg.get('BLE', 'device_id', fallback='').strip() or None
+    return host, port, psk, dev
+
+
+# ---------------------------------------------------------------------------
+# BLE scanner — find Alba/Geberit devices by manufacturer data
+# ---------------------------------------------------------------------------
+_GEBERIT_COMPANY_ID = 0x0602  # Geberit manufacturer ID in BLE advertisements
+
+async def scan_for_geberit(timeout: float = 10.0) -> list:
+    """Scan for BLE devices advertising Geberit manufacturer data (company 0x0602).
+    Returns list of (address, name, rssi) tuples, sorted by RSSI descending."""
+    found = {}
+    def _cb(device, adv):
+        mfr = adv.manufacturer_data or {}
+        if _GEBERIT_COMPANY_ID in mfr:
+            found[device.address] = (device.address, device.name or '', adv.rssi or -999)
+
+    scanner = BleakScanner(detection_callback=_cb)
+    await scanner.start()
+    await asyncio.sleep(timeout)
+    await scanner.stop()
+    return sorted(found.values(), key=lambda x: -x[2])
+
+
+# ---------------------------------------------------------------------------
+# Main async runner
+# ---------------------------------------------------------------------------
+async def run(args):
+    cfg_host, cfg_port, cfg_psk, cfg_dev = _load_config(args.config)
+
+    host   = args.esphome_host or cfg_host
+    port   = args.esphome_port or cfg_port
+    psk    = args.esphome_psk  or cfg_psk
+    device = args.device       or cfg_dev
+
+    if getattr(args, 'scan', False) or not device:
+        timeout = getattr(args, 'scan_timeout', 10.0)
+        print(f"Scanning for Geberit devices ({timeout:.0f} s)...")
+        found = await scan_for_geberit(timeout)
+        if not found:
+            print("  No Geberit devices found (company=0x0602).")
+            if getattr(args, 'scan', False):
+                return 0
+        else:
+            print(f"  Found {len(found)} device(s):")
+            for addr, name, rssi in found:
+                print(f"    {addr}  {name or '(no name)':20s}  RSSI {rssi} dBm")
+            if getattr(args, 'scan', False) and not device:
+                if len(found) == 1:
+                    device = found[0][0]
+                    print(f"  → using {device}")
+                else:
+                    print("  Multiple devices found — re-run with --device <MAC>")
+                    return 0
+        if not device:
+            log.error("No device address.  Provide --device, --scan, or set [BLE] device_id in config.ini.")
+            return 1
+
+    print(f"\nAlba Ble20 Probe  [script: {_SCRIPT_HASH}  bridge: {_BRIDGE_VERSION}]")
+    print(f"  Device  : {device}")
+    if host:
+        print(f"  Via     : ESPHome proxy {host}:{port}")
+    else:
+        print(f"  Via     : local BLE (bleak)")
+    print()
+
+    connector = BluetoothLeConnector(
+        esphome_host=host,
+        esphome_port=port,
+        esphome_noise_psk=psk,
+    )
+    if host:
+        # Mock's BlueZ advertisement can take 10–15 s to become visible to the
+        # ESP32 scanner; the bridge default (10 s) is too short for this path.
+        connector.SCAN_TIMEOUT_S = 45.0
+    session = Ble20Client(connector)
+
+    try:
+        import datetime
+        ts = datetime.datetime.now().strftime('%H:%M:%S')
+        print(f"Connecting + Arendi handshake...  [{ts}]", flush=True)
+        await connector.connect_async(device)
+
+        if not connector.arendi_handshake_done:
+            print(
+                "ERROR: Arendi handshake did NOT complete.\n"
+                "  This device is either not an Alba (Variant A) or the handshake failed.\n"
+                "  Check that the device address is correct and that it is not already\n"
+                "  connected to the Geberit Home app."
+            )
+            return 1
+
+        print(f"Connected.  Arendi handshake done.  Device: {connector.device_address}")
+        if connector.ble_dis_info:
+            print(f"  BLE DIS: {connector.ble_dis_info}")
+        print()
+
+        # ── Always run inventory first (mandatory per protocol; gives us DpId types) ──
+        print("Running DataPointInventory...", flush=True)
+        inv = await session.inventory()
+        print(f"  {len(inv)} DpIds returned.")
+
+        any_action = (
+            args.identify or
+            args.read is not None or
+            args.readall or
+            args.write is not None or
+            args.toggle_lid or
+            args.watch is not None
+        )
+        if not any_action:
+            _print_inventory(inv)
+
+        # ── Optional: device identification ──────────────────────────────────
+        if args.identify:
+            print("\nReading device identification...", flush=True)
+            di = await session.get_device_identification(inv)
+            _print_identification(di)
+
+        # ── Optional: read one DpId ───────────────────────────────────────────
+        if args.read is not None:
+            dp_id = args.read
+            entry = inv.get(dp_id)
+            name  = dp_name(dp_id) or f"DpId {dp_id}"
+            print(f"\nRead {name} (DpId {dp_id})...")
+            raw = await session.read(dp_id)
+            datatype = entry['datatype'] if entry else -1
+            tp  = _dp_type_name(datatype)
+            print(f"  Raw   : {raw.hex()}")
+            print(f"  Type  : {tp}")
+            print(f"  Value : {_format_value(raw, datatype)}")
+
+        # ── Optional: read all DpIds ──────────────────────────────────────────
+        if args.readall:
+            candidates = sorted(inv.items())
+            if not args.include_internal:
+                candidates = [(k, v) for k, v in candidates if not v['is_internal']]
+
+            print(f"\n── Read All DpIds ({len(candidates)} to probe) " + "─" * 50)
+            print(f"{'DpId':>6}  {'Inst':>4}  {'Behavior':<14}  {'Type':<13}  "
+                  f"{'Min':>10}  {'Max':>10}  {'Ver':>3}  {'Value / Error'}")
+            print(f"{'':>6}  {'':>4}  {'':14}  {'':13}  "
+                  f"{'':>10}  {'':>10}  {'':>3}  {'Name'}")
+            print("─" * 110)
+
+            ok_count = err_count = 0
+            for dp_id, entry in candidates:
+                beh_val = entry['behavior']
+                try:
+                    beh_name = DpBehavior(beh_val).name
+                except ValueError:
+                    beh_name = f"{beh_val}"
+                dt   = entry['datatype']
+                tp   = _dp_type_name(dt)
+                name = dp_name(dp_id) or ""
+                inst = f"{entry['instance']}" if entry.get('instance') is not None else ""
+                min_v = entry.get('min_s') if dt == DpType.Signed else entry.get('min_u', "")
+                max_v = entry.get('max_s') if dt == DpType.Signed else entry.get('max_u', "")
+                ver   = entry.get('version', "")
+
+                prefix = f"  {dp_id:>5}  {inst:>4}  "
+                meta   = f"{str(min_v):>10}  {str(max_v):>10}  {str(ver):>3}  "
+                blank_prefix = f"  {'':>5}  {'':>4}  "
+                blank_meta   = f"{'':>10}  {'':>10}  {'':>3}  "
+
+                print(f"{prefix}", end="", flush=True)
+                try:
+                    raw   = await session.read(dp_id)
+                    value = _format_value(raw, dt)
+                    print(f"{beh_name:<14}  {tp:<13}  {meta}{value}")
+                    print(f"{blank_prefix}{'':14}  {'':13}  {blank_meta}{name}")
+                    ok_count += 1
+                except IOError as exc:
+                    print(f"{beh_name:<14}  {tp:<13}  {meta}ERROR: {exc}")
+                    print(f"{blank_prefix}{'':14}  {'':13}  {blank_meta}{name}")
+                    err_count += 1
+                except asyncio.TimeoutError:
+                    print(f"{beh_name:<14}  {tp:<13}  {meta}ERROR: timeout")
+                    print(f"{blank_prefix}{'':14}  {'':13}  {blank_meta}{name}")
+                    err_count += 1
+
+            print("─" * 110)
+            print(f"  {ok_count} read OK  |  {err_count} errors  |  {len(candidates)} probed")
+
+            print("\nReading instanced DpIds...", flush=True)
+            instanced = await _read_instanced_dpids(session)
+            _print_instanced_dpids(instanced)
+
+        # ── Optional: write one DpId ─────────────────────────────────────────
+        write_dp_id    = None
+        write_value_b  = None
+
+        if args.toggle_lid:
+            write_dp_id   = 1009
+            write_value_b = bytes([0x01])
+        elif args.write:
+            write_dp_id, write_int = args.write
+            # Encode as 1 byte if fits, else 4-byte LE uint32
+            if 0 <= write_int <= 255:
+                write_value_b = bytes([write_int])
+            else:
+                write_value_b = struct.pack('<I', write_int)
+
+        if write_dp_id is not None:
+            entry = inv.get(write_dp_id)
+            if entry is None:
+                print(f"\nWARNING: DpId {write_dp_id} not found in inventory — "
+                      f"device may not support it.  Attempting write anyway.")
+            name = dp_name(write_dp_id) or f"DpId {write_dp_id}"
+            print(f"\nWrite {name} (DpId {write_dp_id})  value={write_value_b.hex()}")
+            if not args.yes:
+                confirm = input("  Confirm? [y/N] ").strip().lower()
+                if confirm != 'y':
+                    print("  Cancelled.")
+                    return 0
+            await session.write(write_dp_id, write_value_b)
+            print("  WriteAck received — OK.")
+
+        # ── Optional: watch a DpId (poll until Ctrl+C) ───────────────────────
+        if args.watch is not None:
+            dp_id = args.watch
+            entry  = inv.get(dp_id)
+            name   = dp_name(dp_id) or f"DpId {dp_id}"
+            dt     = entry['datatype'] if entry else -1
+            tp     = _dp_type_name(dt)
+            ivl    = args.interval
+            print(f"\nWatching {name} (DpId {dp_id}, type={tp})  every {ivl}s — Ctrl+C to stop\n")
+            last_raw = None
+            try:
+                while True:
+                    raw = await session.read(dp_id)
+                    if raw != last_raw:
+                        ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                        print(f"  {ts}  {_format_value(raw, dt)}  [{raw.hex()}]")
+                        last_raw = raw
+                    await asyncio.sleep(ivl)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                print("\nWatch stopped.")
+
+    except asyncio.TimeoutError:
+        print("ERROR: Timeout waiting for device response.")
+        return 1
+    except IOError as e:
+        print(f"ERROR: {e}")
+        return 1
+    finally:
+        try:
+            await connector.disconnect()
+        except Exception:
+            pass
+        print("\nDisconnected.")
+
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+class _WriteAction(argparse.Action):
+    """Parse --write DPID VALUE as (int, int)."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            dp_id = int(values[0])
+            value = int(values[1])
+            setattr(namespace, self.dest, (dp_id, value))
+        except (ValueError, IndexError):
+            parser.error(f"--write requires two integers: DPID VALUE")
+
+
+def main():
+    logging.basicConfig(format='%(levelname)s %(name)s: %(message)s')
+    p = argparse.ArgumentParser(
+        prog='alba-ble20-probe',
+        description='Discover and interact with an Alba device via the Ble20 application protocol.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Full inventory:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08
+
+  # Inventory + device identification (name, serial, firmware, SAP, model):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --identify
+
+  # Read lid position:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --read 1008
+
+  # Toggle lid (asks for confirmation):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --toggle-lid
+
+  # Toggle lid without confirmation prompt:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --toggle-lid --yes
+
+  # Write arbitrary DpId (value encoded as 1 byte if ≤ 255, else 4-byte LE uint32):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:B0:08 --write 1009 1
+
+  # Watch userIsSitting (DpId 60 = AC_STATUS_USER_PRESENT):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:6B:04 --watch 60
+
+  # Watch lid angle every 0.5s:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:6B:04 --watch 1008 --interval 0.5
+
+  # Read all external DpIds (shows value or error for each):
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:6B:04 --readall
+
+  # Read all DpIds including internal ones:
+  python tools/alba-ble20-probe.py --device E4:85:01:CD:6B:04 --readall --include-internal
+
+  # Scan for any Geberit device nearby (useful when MAC unknown or RPA is used):
+  python tools/alba-ble20-probe.py --scan
+  python tools/alba-ble20-probe.py --scan --readall
+""")
+    p.add_argument('--scan', action='store_true',
+                   help='Scan for Geberit devices by manufacturer data (company 0x0602); '
+                        'auto-selects address when exactly one is found')
+    p.add_argument('--scan-timeout', type=float, default=10.0, metavar='SEC',
+                   help='BLE scan duration for --scan (default: 10 s)')
+    p.add_argument('--device', metavar='MAC',
+                   help='BLE MAC address (default: [BLE] device_id in config.ini)')
+    p.add_argument('--identify', action='store_true',
+                   help='After inventory, read device identification DpIds and print a summary')
+    p.add_argument('--read', type=int, metavar='DPID',
+                   help='After inventory, read this DpId and print the value')
+    p.add_argument('--readall', action='store_true',
+                   help='After inventory, attempt to read every DpId and print a table of values/errors')
+    p.add_argument('--include-internal', action='store_true',
+                   help='With --readall: also probe internal DpIds (excluded by default)')
+    p.add_argument('--write', nargs=2, metavar=('DPID', 'VALUE'), action=_WriteAction,
+                   help='After inventory, write VALUE (int) to DPID')
+    p.add_argument('--toggle-lid', action='store_true',
+                   help='Shorthand for --write 1009 1 (TRIGGER_LID_LIFTING)')
+    p.add_argument('--watch', type=int, metavar='DPID',
+                   help='After inventory, poll DPID every --interval seconds and print on change (Ctrl+C to stop)')
+    p.add_argument('--interval', type=float, default=1.0, metavar='SEC',
+                   help='Poll interval for --watch (default: 1.0 s)')
+    p.add_argument('--yes', '-y', action='store_true',
+                   help='Skip write confirmation prompt')
+    p.add_argument('--esphome-host', metavar='HOST',
+                   help='ESPHome proxy hostname/IP (default: [ESPHOME] host in config.ini)')
+    p.add_argument('--esphome-port', type=int, metavar='PORT',
+                   help='ESPHome API port (default: 6053)')
+    p.add_argument('--esphome-psk', metavar='PSK',
+                   help='ESPHome noise PSK (default: [ESPHOME] noise_psk in config.ini)')
+    p.add_argument('--config', metavar='PATH',
+                   help='Path to config.ini (default: config.ini in repo root)')
+    p.add_argument('--debug', action='store_true',
+                   help='Enable DEBUG logging from bridge modules')
+    p.add_argument('--trace', action='store_true',
+                   help='Enable TRACE logging from bridge modules (very verbose)')
+
+    args = p.parse_args()
+
+    if args.trace or args.debug:
+        level = logging.TRACE if args.trace else logging.DEBUG  # type: ignore[attr-defined]
+        for name in ('aquaclean_console_app', 'aioesphomeapi'):
+            logging.getLogger(name).setLevel(level)
+        logging.getLogger().setLevel(level)
+        for h in logging.getLogger().handlers:
+            h.setLevel(level)
+
+    sys.exit(asyncio.run(run(args)))
+
+
+if __name__ == '__main__':
+    main()

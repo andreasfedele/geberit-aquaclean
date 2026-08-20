@@ -1,0 +1,240 @@
+import asyncio
+from typing import Callable, Any
+import logging
+import datetime
+import time
+
+from aquaclean_console_app.aquaclean_core.IAquaCleanClient import IAquaCleanClient, DeviceStateChangedEventArgs   
+from aquaclean_console_app.aquaclean_core.Clients import AquaCleanBaseClient
+from aquaclean_console_app.aquaclean_core.Clients.Commands import Commands
+from aquaclean_console_app.aquaclean_core.Clients.ProfileSettings import ProfileSettings
+from aquaclean_console_app.aquaclean_utils import utils   
+from aquaclean_console_app.myEvent import myEvent   
+
+logger = logging.getLogger(__name__)
+
+# GetSystemParameterList (proc 0x0D) indices valid for AquaClean Mera Comfort.
+# Indices 0–7 are supported by all standard AquaClean device variants.
+# Indices 8–14 are device-variant specific:
+#   8  = StateSprayCalibration — not valid for Mera Comfort
+#   9  = StateOrientationLight — AcSela only, not valid for Mera Comfort
+#   10 = StateDraining         — AcCama/AcCamaTestset only, not valid for Mera Comfort
+#   12 = LidOffsetPosition     — Mera Comfort only, requires firmware ≥ RS25
+#   13 = ShowerArmOffsetPosition — Mera Comfort, safe (confirmed from OTA capture 2026-06-01)
+# Sending unsupported indices leaves the device in a state where subsequent
+# GetFilterStatus (proc 0x59) calls time out until the device is power-cycled.
+# NOTE: if support for other device models (AcSela, AcCama, …) is added, a
+# per-model parameter list will be needed here — do not simply extend this list.
+# data_array indexing is POSITION-BASED (not SPL-index-based): data_array[8]=param12, data_array[9]=param13
+SPL_PARAMS_MERA_COMFORT = [0, 1, 2, 3, 4, 5, 6, 7, 12, 13]
+
+class AquaCleanClient(IAquaCleanClient):
+    def __init__(self, bluetooth_connector):
+        self.SOCApplicationVersions = myEvent.EventHandler()
+        self.DeviceIdentification = myEvent.EventHandler()
+        self.DeviceInitialOperationDate = myEvent.EventHandler()
+        self.DeviceStateChanged = myEvent.EventHandler()
+        self.base_client = AquaCleanBaseClient.AquaCleanBaseClient(bluetooth_connector)
+        self.last_device_state_changed_event_args = None
+
+        self.SapNumber = ""
+        self.SerialNumber = ""
+        self.ProductionDate = ""
+        self.Description = ""
+        self.InitialOperationDate = ""
+        self.soc_application_versions = None
+        self.firmware_versions = None
+
+    async def connect(self, device_id: str):
+        """Standard connection and info fetching. No infinite loop here."""
+        logger.trace(f"Connecting to {device_id}...")
+        await self.base_client.connect_async(device_id)
+        ble_conn = self.base_client.bluetooth_le_connector
+        if ble_conn.is_variant_a and not ble_conn.arendi_handshake_done:
+            return  # unsupported variant — skip subscribe; caller checks is_variant_a
+        if not ble_conn.is_variant_a:
+            await self.base_client.subscribe_notifications_async()
+
+        # Fetch Identification Data
+        self.soc_application_versions = await self.base_client.get_soc_application_versions_async()
+        await self.SOCApplicationVersions.invoke_async(self, self.soc_application_versions)
+
+        device_identification = await self.base_client.get_device_identification_async(0)
+        self.SapNumber = device_identification.sap_number
+        self.SerialNumber = device_identification.serial_number
+        self.ProductionDate = device_identification.production_date
+        self.Description = device_identification.description
+        await self.DeviceIdentification.invoke_async(self, device_identification)
+
+        self.InitialOperationDate = await self.base_client.get_device_initial_operation_date()
+        await self.DeviceInitialOperationDate.invoke_async(self, self.InitialOperationDate)
+
+        self.firmware_versions = await self.base_client.get_firmware_version_list_async()
+
+    async def connect_ble_only(self, device_id: str):
+        """Pure BLE handshake — no data fetching. For on-demand mode so that
+        query_ms captures only the actual data request, not eager pre-fetches."""
+        logger.trace(f"BLE-only connect to {device_id}...")
+        await self.base_client.connect_async(device_id)
+        ble_conn = self.base_client.bluetooth_le_connector
+        if ble_conn.is_variant_a and not ble_conn.arendi_handshake_done:
+            return  # unsupported variant — skip subscribe; caller checks is_variant_a
+        if not ble_conn.is_variant_a:
+            await self.base_client.subscribe_notifications_async()
+
+    async def start_polling(self, interval: float, on_poll_done=None):
+        """The infinite loop logic from your original connect method.
+        on_poll_done: optional async callable(millis: int) called after each poll."""
+        logger.info(f"Starting status polling loop (interval: {interval}s)")
+        while True:
+            start = datetime.datetime.now()
+            await self._state_changed_timer_elapsed()
+            delta = datetime.datetime.now() - start
+            millis = int(delta.total_seconds() * 1000)
+            logger.trace(f"getting the device changes took {millis} milliseconds")
+            if on_poll_done:
+                await on_poll_done(millis)
+
+            await asyncio.sleep(interval)
+
+    async def _state_changed_timer_elapsed(self):
+        """Poll live device state via GetSystemParameterList (proc 0x0D)."""
+        result = await self.base_client.get_system_parameter_list_async(SPL_PARAMS_MERA_COMFORT)
+        device_state_changed_event_args = DeviceStateChangedEventArgs(
+            IsUserSitting=result.data_array[0] != 0,
+            IsAnalShowerRunning=result.data_array[3] != 0,  # param 3 confirmed = anal shower
+            IsLadyShowerRunning=result.data_array[2] != 0,
+            IsDryerRunning=result.data_array[1] != 0,  # param 1, dryer state unknown
+            LidOffsetPosition=result.data_array[8],       # SPL index 12, position 8
+            ShowerArmOffsetPosition=result.data_array[9], # SPL index 13, position 9
+        )
+
+        if self.last_device_state_changed_event_args is None:
+            await self.DeviceStateChanged.invoke_async(self, device_state_changed_event_args)
+        elif device_state_changed_event_args != self.last_device_state_changed_event_args:
+            dsc = device_state_changed_event_args
+            ldsc = self.last_device_state_changed_event_args
+            # Restore your original partial-update logic
+            await self.DeviceStateChanged.invoke_async(self, DeviceStateChangedEventArgs(
+                IsUserSitting=dsc.IsUserSitting if dsc.IsUserSitting != ldsc.IsUserSitting else None,
+                IsAnalShowerRunning=dsc.IsAnalShowerRunning if dsc.IsAnalShowerRunning != ldsc.IsAnalShowerRunning else None,
+                IsLadyShowerRunning=dsc.IsLadyShowerRunning if dsc.IsLadyShowerRunning != ldsc.IsLadyShowerRunning else None,
+                IsDryerRunning=dsc.IsDryerRunning if dsc.IsDryerRunning != ldsc.IsDryerRunning else None
+            ))
+
+        self.last_device_state_changed_event_args = device_state_changed_event_args
+
+    async def disconnect(self):
+        await self.base_client.disconnect()
+
+    async def toggle_anal_shower(self):
+        await self.base_client.SetCommandAsync(Commands.ToggleAnalShower)
+
+    async def toggle_lady_shower(self):
+        await self.base_client.SetCommandAsync(Commands.ToggleLadyShower)
+
+    async def toggle_dryer(self):
+        await self.base_client.SetCommandAsync(Commands.ToggleDryer)
+
+    async def toggle_lid_position(self):
+        await self.base_client.SetCommandAsync(Commands.ToggleLidPosition)
+        await asyncio.sleep(0.01)
+
+    async def toggle_orientation_light(self):
+        await self.base_client.SetCommandAsync(Commands.ToggleOrientationLight)
+
+    async def set_orientation_light_mode(self, mode: int):
+        """Set orientation light mode immediately (no power cycle). 0=Off 1=On 2=WhenApproached."""
+        await self.base_client.set_active_common_setting_async(3, mode)
+
+    async def stop(self):
+        """Stop all active functions (SetCommand 3, confirmed from Android+iPhone captures)."""
+        await self.base_client.SetCommandAsync(Commands.Stop)
+
+    async def toggle_odour_extraction(self):
+        await self.base_client.SetCommandAsync(Commands.OdourExtraction)
+
+    async def odour_extraction_run_on(self):
+        await self.base_client.SetCommandAsync(Commands.OdourExtractionRunOn)
+
+    async def reset_filter_counter(self):
+        await self.base_client.SetCommandAsync(Commands.ResetFilterCounter)
+
+    async def trigger_flush_manually(self):
+        await self.base_client.SetCommandAsync(Commands.TriggerFlushManually)
+
+    async def prepare_descaling(self):
+        await self.base_client.SetCommandAsync(Commands.PrepareDescaling)
+
+    async def confirm_descaling(self):
+        await self.base_client.SetCommandAsync(Commands.ConfirmDescaling)
+
+    async def cancel_descaling(self):
+        await self.base_client.SetCommandAsync(Commands.CancelDescaling)
+
+    async def postpone_descaling(self):
+        await self.base_client.SetCommandAsync(Commands.PostponeDescaling)
+
+    async def start_cleaning_device(self):
+        await self.base_client.SetCommandAsync(Commands.StartCleaningDevice)
+
+    async def execute_next_cleaning_step(self):
+        await self.base_client.SetCommandAsync(Commands.ExecuteNextCleaningStep)
+
+    async def start_lid_position_calibration(self):
+        await self.base_client.SetCommandAsync(Commands.StartLidPositionCalibration)
+
+    async def lid_position_offset_save(self):
+        await self.base_client.SetCommandAsync(Commands.LidPositionOffsetSave)
+
+    async def lid_position_offset_increment(self):
+        await self.base_client.SetCommandAsync(Commands.LidPositionOffsetIncrement)
+
+    async def lid_position_offset_decrement(self):
+        await self.base_client.SetCommandAsync(Commands.LidPositionOffsetDecrement)
+
+    async def set_stored_profile_setting(self, setting_id: int, value: int):
+        """Write a single user profile setting by numeric ID (0-9)."""
+        ps = ProfileSettings(setting_id)
+        await self.base_client.set_stored_profile_setting_async(ps, value)
+
+    async def set_stored_common_setting(self, setting_id: int, value: int):
+        """Write a single common (device-wide) setting by numeric ID."""
+        await self.base_client.set_stored_common_setting_async(setting_id, value)
+
+    # --- Restored Original Getter Methods ---
+    async def get_anal_shower_position(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.AnalShowerPosition)
+
+    async def get_water_temperature(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.WaterTemperature)
+    
+    async def get_lady_shower_position(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.LadyShowerPosition)
+
+    async def get_lady_shower_pressure(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.LadyShowerPressure)
+
+    async def get_dryer_state(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.DryerState) == 1
+
+    async def get_oscilation_state(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.OscillatorState) == 1
+
+    async def get_odour_extraction_state(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.OdourExtraction) == 1
+
+    async def set_odour_extraction_state(self, state: bool):
+        await self.base_client.SetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.OdourExtraction, 1 if state else 0)
+
+    async def get_dryer_temperature(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.DryerTemperature)
+
+    async def get_dryer_spray_intensity(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.DryerSprayIntensity)
+
+    async def get_wc_seat_heat(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.WcSeatHeat)
+
+    async def get_system_flush_state(self):
+        return await self.base_client.GetStoredProfileSettingAsync(ProfileSettings.ProfileSettings.SystemFlush) == 1

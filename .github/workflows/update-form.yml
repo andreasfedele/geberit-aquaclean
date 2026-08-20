@@ -1,0 +1,26 @@
+name: Update Issue Form Versions
+on:
+  release:
+    types: [published, deleted]
+  workflow_dispatch:
+
+jobs:
+  update-form:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get releases
+        id: releases
+        run: |
+          echo "options=$(gh release list --limit 30 --json tagName --jq '[.[].tagName]')" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update dropdown
+        uses: ShaMan123/gha-form-dropdown-options@v2.1.0
+        with:
+          form: .github/ISSUE_TEMPLATE/bug_report.yml
+          dropdown: version
+          options: ${{ steps.releases.outputs.options }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}

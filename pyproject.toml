@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geberit-aquaclean"
+version = "3.1.3b2"
+description = "Python bridge between Geberit AquaClean toilet (BLE) and home automation (MQTT/REST)"
+requires-python = ">=3.11"
+dependencies = [
+    "bleak>=2.0.0",       # note: 2.1.x may slow BLE connect on RPi5 BCM4345C0 + BlueZ 5.84
+                          # (2.0.0 = ~1.8 s, 2.1.1 = ~25 s); ESP32 proxy is unaffected.
+                          # HA ships bleak 2.1.1 — upper bound removed to allow HACS installation.
+    # PINNED — fixes #38: an unconstrained requirement let pip install a newer
+    # aioesphomeapi release than the one bundled with HA Core's `esphome`
+    # integration. aioesphomeapi ships compiled Cython extensions; having two
+    # ABI-incompatible builds imported into the same HA process breaks *all*
+    # ESPHome devices, not just this integration's proxy connection
+    # ("size changed, may indicate binary incompatibility", missing C symbols,
+    # UnhandledAPIConnectionError). Range below is centered on 24.6.2, the
+    # version this bridge was last verified against (see docs/cli.md). Before
+    # raising the upper bound, confirm it against the aioesphomeapi version
+    # your target HA release actually ships — Settings → System → Repairs →
+    # (⋮) → "Download diagnostics" on the ESPHome integration, or
+    # `pip show aioesphomeapi` inside the HA venv/container.
+    "aioesphomeapi>=24.6.0,<25.0.0",
+    "aiorun",
+    "fastapi",
+    "uvicorn",
+    "paho-mqtt",
+]
+
+[project.scripts]
+aquaclean-bridge = "aquaclean_console_app.__main__:entry_point"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aquaclean_console_app*"]
+
+[tool.setuptools.package-data]
+"aquaclean_console_app" = ["static/*", "config.ini"]
+
+[project.optional-dependencies]
+test = ["pytest", "pytest-asyncio"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

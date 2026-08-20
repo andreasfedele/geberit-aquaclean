@@ -1,0 +1,201 @@
+# REST API Reference
+
+Start the server with:
+
+```bash
+python main.py --mode api
+```
+
+Base URL: `http://<host>:<port>` (default: `http://0.0.0.0:8080`)
+
+All endpoints return JSON.  In **on-demand** mode, timing fields are appended to every response that required a BLE round-trip:
+
+| Field | Description |
+|-------|-------------|
+| `_connect_ms` | Total connect time (ESP32 API + BLE handshake) |
+| `_esphome_api_ms` | ESP32 API TCP connect time (`0` when connection was reused) |
+| `_ble_ms` | BLE scan + handshake time |
+| `_query_ms` | Time for the actual GATT data request |
+
+On BLE or ESP32 errors, endpoints that trigger a BLE round-trip return HTTP **503** with a structured error body:
+
+```json
+{"status": "error", "error": {"code": "E0003", "message": "...", "hint": "..."}  }
+```
+
+An interactive Swagger UI is available at `http://<host>:<port>/docs`.
+
+---
+
+## General
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Serve web UI |
+| `GET` | `/events` | SSE stream of state updates |
+| `GET` | `/status` | Current device state (4 monitor flags + BLE metadata) |
+| `GET` | `/info` | Device identification + initial operation date |
+| `GET` | `/config` | Current runtime config (`ble_connection`, `poll_interval`, `esphome_api_connection`) |
+| `POST` | `/config/ble-connection` | Switch BLE connection mode. Body: `{"value": "persistent"}` or `{"value": "on-demand"}` |
+| `POST` | `/config/esphome-api-connection` | Switch ESP32 API TCP mode. Body: `{"value": "persistent"}` or `{"value": "on-demand"}` |
+| `POST` | `/config/poll-interval` | Set poll interval at runtime (does not write `config.ini`). Body: `{"value": 10.5}`. `0` disables background polling. |
+| `POST` | `/connect` | Request BLE connect (persistent: reconnect; on-demand: connect + fetch info) |
+| `POST` | `/disconnect` | Request BLE disconnect (persistent only) |
+| `POST` | `/esphome/connect` | Connect/reconnect the ESP32 API TCP connection |
+| `POST` | `/esphome/disconnect` | Disconnect the ESP32 API TCP connection |
+
+## Commands
+
+All command endpoints require the user to be physically present at the device (or seated, where noted).
+The shower/dryer commands only take effect while a user is sitting — the device ignores them otherwise.
+
+> **Testing status legend:** ✅ confirmed working · ⚠️ implemented but not working · 🔲 untested
+
+| Method | Path | Description | Status |
+|--------|------|-------------|--------|
+| `POST` | `/command/toggle-lid` | Toggle lid open/closed | ✅ |
+| `POST` | `/command/toggle-anal` | Toggle anal shower on/off (requires user sitting) | ✅ |
+| `POST` | `/command/toggle-lady` | Toggle lady shower on/off (requires user sitting) | ✅ |
+| `POST` | `/command/toggle-dryer` | Toggle dryer on/off (requires user sitting) | ✅ |
+| `POST` | `/command/toggle-orientation-light` | Toggle orientation light | ⚠️ not working |
+| `POST` | `/command/reset-filter-counter` | Reset ceramic honeycomb filter counter (sets days back to 365, increments reset count) | 🔲 |
+| `POST` | `/command/trigger-flush-manually` | Trigger manual flush | 🔲 |
+| `POST` | `/command/prepare-descaling` | Start descaling workflow (step 1 of 2) | 🔲 |
+| `POST` | `/command/confirm-descaling` | Confirm descaling ready (step 2 of 2) | 🔲 |
+| `POST` | `/command/cancel-descaling` | Cancel descaling workflow | 🔲 |
+| `POST` | `/command/postpone-descaling` | Postpone descaling reminder | 🔲 |
+| `POST` | `/command/start-cleaning-device` | Start device self-cleaning cycle | 🔲 |
+| `POST` | `/command/execute-next-cleaning-step` | Advance to the next cleaning step | 🔲 |
+| `POST` | `/command/start-lid-calibration` | Start lid position calibration | 🔲 |
+| `POST` | `/command/lid-offset-save` | Save calibrated lid offset | 🔲 |
+| `POST` | `/command/lid-offset-increment` | Nudge lid offset up | 🔲 |
+| `POST` | `/command/lid-offset-decrement` | Nudge lid offset down | 🔲 |
+
+## Data queries
+
+Each endpoint queries only the relevant parameter from the device.
+
+| Method | Path | Response field(s) |
+|--------|------|-------------------|
+| `GET` | `/data/system-parameters` | `is_user_sitting`, `is_anal_shower_running`, `is_lady_shower_running`, `is_dryer_running` |
+| `GET` | `/data/user-sitting-state` | `is_user_sitting` |
+| `GET` | `/data/anal-shower-state` | `is_anal_shower_running` |
+| `GET` | `/data/lady-shower-state` | `is_lady_shower_running` |
+| `GET` | `/data/dryer-state` | `is_dryer_running` |
+| `GET` | `/data/identification` | `sap_number`, `serial_number`, `production_date`, `description` |
+| `GET` | `/data/initial-operation-date` | `initial_operation_date` |
+| `GET` | `/data/soc-versions` | `soc_versions` |
+| `GET` | `/data/statistics-descale` | `days_until_next_descale`, `days_until_shower_restricted`, `shower_cycles_until_confirmation`, `number_of_descale_cycles`, `date_time_at_last_descale`, `date_time_at_last_descale_prompt`, `unposted_shower_cycles` |
+| `GET` | `/data/firmware-version-list` | `main` (e.g. `"RS28.0 TS199"`), `components` (dict of component IDs → version records) |
+| `GET` | `/data/filter-status` | `days_until_filter_change`, `last_filter_reset` (Unix timestamp), `filter_reset_count`, `shower_cycles`, plus raw record IDs 0–10 |
+
+---
+
+## Examples
+
+### Query user sitting state
+
+```bash
+curl http://localhost:8080/data/user-sitting-state
+```
+```json
+{"is_user_sitting":false,"_connect_ms":4311,"_query_ms":306}
+```
+
+### Query all system parameters
+
+```bash
+curl http://localhost:8080/data/system-parameters
+```
+```json
+{
+  "is_user_sitting": false,
+  "is_anal_shower_running": false,
+  "is_lady_shower_running": false,
+  "is_dryer_running": false,
+  "_connect_ms": 812,
+  "_query_ms": 198
+}
+```
+
+### Query descale statistics
+
+```bash
+curl http://localhost:8080/data/statistics-descale
+```
+```json
+{
+  "days_until_next_descale": 61,
+  "days_until_shower_restricted": 14,
+  "shower_cycles_until_confirmation": 1,
+  "number_of_descale_cycles": 2,
+  "date_time_at_last_descale": 1745932224,
+  "date_time_at_last_descale_prompt": 1745932224,
+  "unposted_shower_cycles": 1,
+  "_connect_ms": 4210,
+  "_query_ms": 312
+}
+```
+
+### Toggle lid
+
+```bash
+curl -X POST http://localhost:8080/command/toggle-lid
+```
+```json
+{"status":"success","command":"toggle-lid","_connect_ms":4388,"_query_ms":1316}
+```
+
+### Switch to on-demand mode
+
+```bash
+curl -X POST http://localhost:8080/config/ble-connection \
+     -H "Content-Type: application/json" \
+     -d '{"value": "on-demand"}'
+```
+
+### Switch ESP32 API connection to persistent
+
+```bash
+curl -X POST http://localhost:8080/config/esphome-api-connection \
+     -H "Content-Type: application/json" \
+     -d '{"value": "persistent"}'
+```
+
+### Set poll interval to 30 seconds
+
+```bash
+curl -X POST http://localhost:8080/config/poll-interval \
+     -H "Content-Type: application/json" \
+     -d '{"value": 30}'
+```
+
+### Disable background polling
+
+```bash
+curl -X POST http://localhost:8080/config/poll-interval \
+     -H "Content-Type: application/json" \
+     -d '{"value": 0}'
+```
+
+---
+
+## Server-Sent Events (SSE)
+
+Connect to `/events` to receive a real-time push stream of state changes:
+
+```bash
+curl -N http://localhost:8080/events
+```
+
+Each event is a JSON object with a `type` field:
+
+```
+data: {"type": "state", "ble_status": "connected", "is_user_sitting": false, "is_anal_shower_running": false, "is_lady_shower_running": false, "is_dryer_running": false}
+
+data: {"type": "state", "ble_status": "disconnected"}
+```
+
+A heartbeat comment (`: heartbeat`) is sent every 30 seconds to keep the connection alive through proxies.
+
+The web UI subscribes to this stream to update tiles and the connection panel without polling.
