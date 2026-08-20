@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "geberit-aquaclean"
-version = "3.1.3b2"
+version = "3.1.3b3"
 description = "Python bridge between Geberit AquaClean toilet (BLE) and home automation (MQTT/REST)"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,13 +17,16 @@ dependencies = [
     # ABI-incompatible builds imported into the same HA process breaks *all*
     # ESPHome devices, not just this integration's proxy connection
     # ("size changed, may indicate binary incompatibility", missing C symbols,
-    # UnhandledAPIConnectionError). Range below is centered on 24.6.2, the
-    # version this bridge was last verified against (see docs/cli.md). Before
-    # raising the upper bound, confirm it against the aioesphomeapi version
-    # your target HA release actually ships — Settings → System → Repairs →
-    # (⋮) → "Download diagnostics" on the ESPHome integration, or
-    # `pip show aioesphomeapi` inside the HA venv/container.
-    "aioesphomeapi>=24.6.0,<25.0.0",
+    # UnhandledAPIConnectionError). Originally pinned >=24.6.0,<25.0.0 (last
+    # version verified in docs/cli.md), but 24.6.x has no wheels for Python
+    # 3.14 (cp314) — only cp312 — so that range is unusable on HA OS releases
+    # running 3.14+. Widened to >=25.0.0,<26.0.0, confirmed installable
+    # against Python 3.14.6 / HA 2026.8.2. Before raising the upper bound,
+    # confirm it against the aioesphomeapi version your target HA release
+    # actually ships — Settings → System → Repairs → (⋮) → "Download
+    # diagnostics" on the ESPHome integration, or `pip show aioesphomeapi`
+    # inside the HA venv/container.
+    "aioesphomeapi>=25.0.0,<26.0.0",
     "aiorun",
     "fastapi",
     "uvicorn",
