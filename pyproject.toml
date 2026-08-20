@@ -4,29 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "geberit-aquaclean"
-version = "3.1.3b3"
+version = "3.1.3b4"
 description = "Python bridge between Geberit AquaClean toilet (BLE) and home automation (MQTT/REST)"
 requires-python = ">=3.11"
 dependencies = [
     "bleak>=2.0.0",       # note: 2.1.x may slow BLE connect on RPi5 BCM4345C0 + BlueZ 5.84
                           # (2.0.0 = ~1.8 s, 2.1.1 = ~25 s); ESP32 proxy is unaffected.
                           # HA ships bleak 2.1.1 — upper bound removed to allow HACS installation.
-    # PINNED — fixes #38: an unconstrained requirement let pip install a newer
-    # aioesphomeapi release than the one bundled with HA Core's `esphome`
-    # integration. aioesphomeapi ships compiled Cython extensions; having two
-    # ABI-incompatible builds imported into the same HA process breaks *all*
-    # ESPHome devices, not just this integration's proxy connection
-    # ("size changed, may indicate binary incompatibility", missing C symbols,
-    # UnhandledAPIConnectionError). Originally pinned >=24.6.0,<25.0.0 (last
-    # version verified in docs/cli.md), but 24.6.x has no wheels for Python
-    # 3.14 (cp314) — only cp312 — so that range is unusable on HA OS releases
-    # running 3.14+. Widened to >=25.0.0,<26.0.0, confirmed installable
-    # against Python 3.14.6 / HA 2026.8.2. Before raising the upper bound,
-    # confirm it against the aioesphomeapi version your target HA release
-    # actually ships — Settings → System → Repairs → (⋮) → "Download
-    # diagnostics" on the ESPHome integration, or `pip show aioesphomeapi`
-    # inside the HA venv/container.
-    "aioesphomeapi>=25.0.0,<26.0.0",
     "aiorun",
     "fastapi",
     "uvicorn",
@@ -44,6 +28,30 @@ include = ["aquaclean_console_app*"]
 "aquaclean_console_app" = ["static/*", "config.ini"]
 
 [project.optional-dependencies]
+# fixes #38, round 3 — adopts the approach from upstream PR #46
+# (jens62/geberit-aquaclean#46, "Avoid overriding Home Assistant ESPHome
+# client", open/unmerged as of this writing).
+#
+# aioesphomeapi is used ONLY for the optional ESPHome-Bluetooth-Proxy
+# connection path (aquaclean_console_app/bluetooth_le/LE/
+# BluetoothLeConnector.py + ESPHomeAPIClient.py) — and both of those
+# import it lazily, inside functions, not at module load time. Direct-BLE
+# users never touch it. So it never needed to be an unconditional base
+# dependency at all; that was the actual root mistake behind #38, not
+# just a missing version pin (rounds 1 and 2 of this fix, b2-b4, kept
+# trying to pick a version range that wouldn't fight Home Assistant's own
+# exact-pinned, pre-baked aioesphomeapi — and any such range is
+# guaranteed to go stale as HA's pin moves forward every release; b4
+# broke every ESPHome device on a real installation this way after a
+# routine restart). Moving it to an extra means our package NEVER installs
+# or touches aioesphomeapi via a stock `pip install geberit-aquaclean` —
+# on Home Assistant it simply uses whatever HA Core's own `esphome`
+# integration already has installed (which, by construction, is present
+# and correct on any install that also uses this integration's ESPHome
+# Bluetooth Proxy feature). Only install the `esphome` extra explicitly
+# for STANDALONE (non-HA) console-app use via ESPHome proxy:
+# `pip install geberit-aquaclean[esphome]`.
+esphome = ["aioesphomeapi"]
 test = ["pytest", "pytest-asyncio"]
 
 [tool.pytest.ini_options]
